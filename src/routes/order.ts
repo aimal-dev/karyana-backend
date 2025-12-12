@@ -411,6 +411,14 @@ router.put(
       include: { user: true },
     });
 
+     await prisma.trackingHistory.create({
+      data: {
+        orderId: updated.id,
+        status,
+        message: `Order moved to ${status}`,
+      },
+    });
+
     const info = await transporter.sendMail({
       from: `"My Store" <${process.env.EMAIL_USER}>`,
       to: updated.user.email,
@@ -432,6 +440,76 @@ router.put(
     });
   },
 );
+
+/* --------------------------------------------------
+   7️⃣ SELLER/ADMIN/USER: Tracking
+-------------------------------------------------- */
+
+router.post("/tracking", authenticateToken, verifyRoles("SELLER"), async (req, res) => {
+  try {
+    const { orderId, status, message } = req.body;
+
+    // 1. Update order status
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { status }
+    });
+
+    // 2. Add tracking history record
+    const track = await prisma.trackingHistory.create({
+      data: {
+        orderId,
+        status,
+        message
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: "Tracking updated",
+      track
+    });
+  } catch (error) {
+    const err = error as Error;
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+/* --------------------------------------------------
+   7️⃣ SELLER/ADMIN: Order tracking status 
+-------------------------------------------------- */
+
+router.get(
+  "/:id/tracking",
+  authenticateToken,
+  verifyRoles("USER", "SELLER", "ADMIN"),
+  async (req: AuthRequest, res) => {
+    const orderId = Number(req.params.id);
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        trackingHistory: {
+          orderBy: { createdAt: "asc" }, // timeline shape
+        },
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    res.json({
+      orderId: order.id,
+      currentStatus: order.status,
+      tracking: order.trackingHistory,
+    });
+  }
+);
+
+
 
 /* --------------------------------------------------
    7️⃣ SELLER/ADMIN: Order stats for charts

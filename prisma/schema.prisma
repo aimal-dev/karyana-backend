@@ -118,6 +118,8 @@ model Order {
 
   items      OrderItem[]
 
+  trackingHistory TrackingHistory[]
+
   payment Payment?
 
   complaints Complaint[] // optional complaints related to this order
@@ -140,6 +142,20 @@ model OrderItem {
 
   qty        Int
   price      Float
+}
+//
+// -------------------------
+//     TRACKING HISTORY
+// -------------------------
+//
+
+model TrackingHistory {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  order     Order    @relation(fields: [orderId], references: [id])
+  status    String
+  message   String?
+  createdAt DateTime @default(now())
 }
 
 //
