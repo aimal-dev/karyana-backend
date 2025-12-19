@@ -32,12 +32,7 @@ router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: 
   res.json({ message: "Product created", product });
 });
 
-// GET all seller products
-router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const sellerId = req.user!.id;
-  const products = await prisma.product.findMany({ where: { sellerId } });
-  res.json({ products });
-});
+
 
 // UPDATE product
 router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
@@ -69,31 +64,8 @@ router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (
 
 // -------------------- User Routes --------------------
 
-// GET all products (for users, read-only)
-router.get("/all", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
-  const products = await prisma.product.findMany({
-    include: {
-      seller: { select: { id: true, name: true } },
-      category: { select: { id: true, name: true } },
-    },
-  });
-  res.json({ products });
-});
 
-// GET single product by ID (for users)
-router.get("/:id", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
-  const productId = Number(req.params.id);
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-    include: {
-      seller: { select: { id: true, name: true } },
-      category: { select: { id: true, name: true } },
-    },
-  });
 
-  if (!product) return res.status(404).json({ error: "Product not found" });
-  res.json({ product });
-});
 
 // GET all seller products with filters, search, pagination
 router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
@@ -149,6 +121,21 @@ router.get("/all", authenticateToken, verifyRoles("USER"), async (req: AuthReque
   const total = await prisma.product.count({ where });
 
   res.json({ products, total, page: Number(page), limit: Number(limit) });
+});
+
+// GET single product by ID (for users)
+router.get("/:id", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
+  const productId = Number(req.params.id);
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    include: {
+      seller: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true } },
+    },
+  });
+
+  if (!product) return res.status(404).json({ error: "Product not found" });
+  res.json({ product });
 });
 
 export default router;
