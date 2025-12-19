@@ -96,7 +96,7 @@ router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: A
 });
 
 // GET all products for users (read-only) with filters, search, pagination
-router.get("/all", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
+router.get("/all", async (req, res) => {
   const { page = 1, limit = 10, categoryId, minPrice, maxPrice, search } = req.query;
 
   const where: any = {};
@@ -124,7 +124,7 @@ router.get("/all", authenticateToken, verifyRoles("USER"), async (req: AuthReque
 });
 
 // GET single product by ID (for users)
-router.get("/:id", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
+router.get("/:id", async (req, res) => {
   const productId = Number(req.params.id);
   const product = await prisma.product.findUnique({
     where: { id: productId },

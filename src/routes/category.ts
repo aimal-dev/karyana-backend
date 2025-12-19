@@ -48,7 +48,7 @@ router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (
 // -------------------- User Routes --------------------
 
 // GET all categories (for users)
-router.get("/all", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
+router.get("/all", async (req, res) => {
   const categories = await prisma.category.findMany();
   res.json({ categories });
 });
