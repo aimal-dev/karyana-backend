@@ -14,7 +14,7 @@ router.get("/profile", authenticateToken, verifyRoles("SELLER", "ADMIN"), async 
 
 // CREATE new product
 router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const { title, description, price, stock, image, categoryId } = req.body;
+  const { title, description, price, stock, image, categoryId, images } = req.body;
   const sellerId = req.user!.id;
 
   const product = await prisma.product.create({
@@ -23,10 +23,14 @@ router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: 
       description,
       price: Number(price),
       stock: Number(stock) || 0,
-      image,
+      image, // featured image
       sellerId,
       categoryId: Number(categoryId),
+      images: {
+        create: (images || []).map((url: string) => ({ url }))
+      }
     },
+    include: { images: true }
   });
 
   res.json({ message: "Product created", product });
@@ -37,7 +41,10 @@ router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: 
 // UPDATE product
 router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   const productId = Number(req.params.id);
-  const { title, description, price, stock, image, categoryId } = req.body;
+  const { title, description, price, stock, image, categoryId, images } = req.body;
+
+  // Re-sync images: delete all and create new
+  await prisma.productImage.deleteMany({ where: { productId } });
 
   const updated = await prisma.product.update({
     where: { id: productId },
@@ -48,7 +55,11 @@ router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req
       stock: Number(stock) || 0,
       image,
       categoryId: Number(categoryId),
+      images: {
+        create: (images || []).map((url: string) => ({ url }))
+      }
     },
+    include: { images: true }
   });
 
   res.json({ message: "Product updated", updated });
@@ -69,10 +80,8 @@ router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (
 
 // GET all seller products with filters, search, pagination
 router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const sellerId = req.user!.id;
   const { page = 1, limit = 10, categoryId, minPrice, maxPrice, search } = req.query;
-
-  const where: any = { sellerId };
+  const where: any = {};
 
   if (categoryId) where.categoryId = Number(categoryId);
   if (minPrice || maxPrice) where.price = {};
@@ -114,6 +123,7 @@ router.get("/all", async (req, res) => {
     include: {
       seller: { select: { id: true, name: true } },
       category: { select: { id: true, name: true } },
+      images: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -131,6 +141,7 @@ router.get("/:id", async (req, res) => {
     include: {
       seller: { select: { id: true, name: true } },
       category: { select: { id: true, name: true } },
+      images: true,
     },
   });
 

@@ -3,6 +3,7 @@ import prisma from "../prismaClient.ts";
 async function createNotification(data: {
   userId?: number;
   sellerId?: number;
+  role?: string;
   message: string;
   link?: string;
 }) {
@@ -10,6 +11,7 @@ async function createNotification(data: {
     data: {
       userId: data.userId ?? null,
       sellerId: data.sellerId ?? null,
+      role: data.role ?? null,
       message: data.message,
       link: data.link ?? null,
     },

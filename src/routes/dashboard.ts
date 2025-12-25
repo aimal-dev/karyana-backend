@@ -69,14 +69,15 @@ router.get(
 
 /* -----------------------------
    2️⃣ SELLER DASHBOARD SUMMARY
-   (products + orders + revenue + reviews + complaints)
+   (Now matches Admin's visibility as per request)
 ----------------------------- */
 router.get(
   "/seller",
   authenticateToken,
   verifyRoles("SELLER", "ADMIN"),
   async (req: AuthRequest, res) => {
-    const sellerId = req.user!.id;
+    // Note: We are removing the restrictive sellerId filters to provide global visibility
+    // same as Admin, except for notifications which stay personal.
 
     const [
       totalProducts,
@@ -89,71 +90,79 @@ router.get(
       totalComplaints,
       openComplaints,
       unreadNotifications,
+      totalCustomersAgg,
+      last7DaysSales,
     ] = await Promise.all([
-      prisma.product.count({ where: { sellerId } }),
-      prisma.category.count({ where: { sellerId } }),
+      prisma.product.count(),
+      prisma.category.count(),
 
-      // jitne orders me is seller ke products hain
-      prisma.order.count({
-        where: { items: { some: { product: { sellerId } } } },
-      }),
+      prisma.order.count(),
+      prisma.order.count({ where: { status: "PENDING" } }),
+      prisma.order.count({ where: { status: "DELIVERED" } }),
 
-      prisma.order.count({
-        where: {
-          status: "PENDING",
-          items: { some: { product: { sellerId } } },
-        },
-      }),
-
-      prisma.order.count({
-        where: {
-          status: "DELIVERED",
-          items: { some: { product: { sellerId } } },
-        },
-      }),
-
-      // Revenue: sum of order.total for all orders containing this seller's products
       prisma.order.aggregate({
         _sum: { total: true },
-        where: { items: { some: { product: { sellerId } } } },
       }),
 
-      // Total reviews on seller's products
-      prisma.review.count({
-        where: { product: { sellerId } },
-      }),
-
-      // Complaints related to seller's products/orders
-      prisma.complaint.count({
-        where: {
-          OR: [
-            { product: { sellerId } },
-            { order: { items: { some: { product: { sellerId } } } } },
-          ],
-        },
-      }),
-
-      // Open/PENDING complaints
-      prisma.complaint.count({
-        where: {
-          status: "PENDING",
-          OR: [
-            { product: { sellerId } },
-            { order: { items: { some: { product: { sellerId } } } } },
-          ],
-        },
-      }),
+      prisma.review.count(),
+      prisma.complaint.count(),
+      prisma.complaint.count({ where: { status: "PENDING" } }),
 
       prisma.notification.count({
-        where: { sellerId, read: false },
+        where: { 
+          OR: [
+            { sellerId: req.user!.id },
+            { role: req.user!.role }
+          ],
+          read: false 
+        },
       }),
+
+      // Total Unique Customers
+      prisma.order.groupBy({
+        by: ['userId'],
+      }),
+
+      // Last 7 Days Sales Data
+      prisma.order.groupBy({
+        by: ['createdAt'],
+        _sum: { total: true },
+        where: { 
+          createdAt: { gte: new Date(new Date().setDate(new Date().getDate() - 7)) }
+        },
+        orderBy: { createdAt: 'asc' }
+      })
     ]);
 
+    const recentOrders = await prisma.order.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      include: {
+        user: { select: { name: true, email: true } },
+        items: {
+          include: { product: { select: { title: true } } }
+        }
+      }
+    });
+
     const totalRevenue = revenueAgg._sum.total || 0;
+    const totalCustomers = totalCustomersAgg.length;
+
+    // Process chart data
+    const dailySales = last7DaysSales.reduce((acc: any, curr: any) => {
+      const date = curr.createdAt.toISOString().split('T')[0];
+      acc[date] = (acc[date] || 0) + (curr._sum.total || 0);
+      return acc;
+    }, {});
+
+    const chartData = Object.entries(dailySales).map(([date, total]) => ({
+      date,
+      sales: total
+    }));
 
     res.json({
       seller: {
-        id: sellerId,
+        id: req.user!.id,
         role: req.user!.role,
       },
       stats: {
@@ -163,6 +172,8 @@ router.get(
         pendingOrders,
         deliveredOrders,
         totalRevenue,
+        totalCustomers,
+        chartData,
         reviews: {
           total: totalReviews,
         },
@@ -172,13 +183,13 @@ router.get(
         },
         unreadNotifications,
       },
+      recentOrders
     });
   },
 );
 
 /* -----------------------------
    3️⃣ ADMIN DASHBOARD SUMMARY
-   (users + sellers + products + orders + revenue + reviews + complaints)
 ----------------------------- */
 router.get(
   "/admin",
@@ -202,6 +213,7 @@ router.get(
       totalReviews,
       totalComplaints,
       openComplaints,
+      last7DaysSalesAdmin,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.seller.count(),
@@ -227,9 +239,31 @@ router.get(
       prisma.review.count(),
       prisma.complaint.count(),
       prisma.complaint.count({ where: { status: "PENDING" } }),
+
+      // Last 7 Days Sales Data for Admin
+      prisma.order.groupBy({
+        by: ['createdAt'],
+        _sum: { total: true },
+        where: { 
+          createdAt: { gte: new Date(new Date().setDate(new Date().getDate() - 7)) }
+        },
+        orderBy: { createdAt: 'asc' }
+      })
     ]);
 
     const totalRevenue = revenueAgg._sum.amount || 0;
+    const successRate = totalOrders > 0 ? ((deliveredOrders / totalOrders) * 100).toFixed(1) : "0";
+
+    const dailySalesAdmin = last7DaysSalesAdmin.reduce((acc: any, curr: any) => {
+      const date = curr.createdAt.toISOString().split('T')[0];
+      acc[date] = (acc[date] || 0) + (curr._sum.total || 0);
+      return acc;
+    }, {});
+
+    const chartDataAdmin = Object.entries(dailySalesAdmin).map(([date, total]) => ({
+      date,
+      sales: total
+    }));
 
     const [recentUsers, recentOrders, recentPendingSellers] = await Promise.all([
       prisma.user.findMany({
@@ -257,7 +291,7 @@ router.get(
 
     res.json({
       admin: {
-        id: req.user!.id, // auth.ts me admin-login id=0 de raha
+        id: req.user!.id,
         role: req.user!.role,
       },
       stats: {
@@ -284,6 +318,8 @@ router.get(
         revenue: {
           totalRevenue,
         },
+        successRate,
+        chartData: chartDataAdmin,
         reviews: {
           total: totalReviews,
         },

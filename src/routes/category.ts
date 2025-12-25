@@ -8,17 +8,18 @@ const router = express.Router();
 // GET all categories for the seller
 router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   const sellerId = req.user!.id;
-  const categories = await prisma.category.findMany({ where: { sellerId } });
+  const where = req.user!.role === "ADMIN" ? {} : { sellerId };
+  const categories = await prisma.category.findMany({ where, include: { seller: { select: { name: true } } } });
   res.json({ categories });
 });
 
 // CREATE a new category
 router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const { name } = req.body;
-  const sellerId = req.user!.id;
+  const { name, image } = req.body;
+  const sellerId = req.user!.role === "ADMIN" ? null : req.user!.id;
 
   const category = await prisma.category.create({
-    data: { name, sellerId },
+    data: { name, image, sellerId },
   });
 
   res.json({ message: "Category created", category });
@@ -27,11 +28,11 @@ router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: 
 // UPDATE a category
 router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   const categoryId = Number(req.params.id);
-  const { name } = req.body;
+  const { name, image } = req.body;
 
   const updated = await prisma.category.update({
     where: { id: categoryId },
-    data: { name },
+    data: { name, image },
   });
 
   res.json({ message: "Category updated", updated });

@@ -2,36 +2,10 @@ import express from "express";
 import { authenticateToken, verifyRoles } from "../middlewares/auth.ts";
 import prisma from "../prismaClient.ts";
 import type { AuthRequest } from "../../types/AuthRequest.ts";
-import nodemailer from "nodemailer";
+import transporter from "../utils/mailer.ts";
+import createNotification from "../utils/notification-helper.ts";
 
 const router = express.Router();
-
-// Setup transporter for nodemailer
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT),
-  secure: false,
-  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-});
-
-// ----------------------
-// Notification helper
-// ----------------------
-async function createNotification(data: {
-  userId?: number;
-  sellerId?: number | null;
-  message: string;
-  link?: string;
-}) {
-  return prisma.notification.create({
-    data: {
-      userId: data.userId ?? null,
-      sellerId: data.sellerId ?? undefined,
-      message: data.message,
-      link: data.link ?? null,
-    },
-  });
-}
 
 // ----------------------
 // 1️⃣ User: Get own complaints
@@ -55,62 +29,98 @@ router.post("/", authenticateToken, verifyRoles("USER"), async (req: AuthRequest
   const complaint = await prisma.complaint.create({ data: { subject, message, userId } });
 
   // Email + notification to admin
-  await transporter.sendMail({
-    from: `"My Store" <${process.env.EMAIL_USER}>`,
-    to: process.env.ADMIN_EMAIL,
-    subject: `New Complaint: ${subject} from ${req.user!.name}`,
-    text: `Message: ${message}`,
-  });
-  await createNotification({ sellerId: null, message: `New complaint submitted by ${req.user!.name}`, link: `/admin/complaints/${complaint.id}` });
+  try {
+    await transporter.sendMail({
+      from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
+      to: process.env.ADMIN_EMAIL,
+      subject: `New Complaint: ${subject} from ${req.user!.name}`,
+      text: `Message: ${message}`,
+    });
+  } catch (err) {
+    console.error("Failed to send complaint email:", err);
+  }
 
-  res.json({ message: "Complaint submitted", complaint });
+  await createNotification({ 
+    role: "ADMIN", 
+    message: `New complaint submitted by ${req.user!.name}: ${subject}`, 
+    link: `/admin/complaints/${complaint.id}` 
+  });
+
+  res.json({ message: "Complaint submitted & Admin notified", complaint });
 });
 
 // ----------------------
 // 3️⃣ Seller/Admin: Get complaints for their products
 // ----------------------
 router.get("/seller", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const sellerId = req.user!.id;
+  const where: any = {};
 
-  // Example: complaints linked via orders/items
   const complaints = await prisma.complaint.findMany({
-    where: { order: { items: { some: { product: { sellerId } } } } },
-    include: { user: true },
+    where,
+    include: { user: true, product: true, order: true },
+    orderBy: { createdAt: "desc" }
   });
 
   res.json({ complaints });
 });
 
 // ----------------------
-// 4️⃣ Seller: Reply to complaint & notify user
+// 4️⃣ Seller/Admin: Reply to complaint & notify user
 // ----------------------
 router.put("/reply/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   const complaintId = Number(req.params.id);
   const { sellerReply } = req.body;
-  if (!sellerReply) return res.status(400).json({ error: "Reply cannot be empty" });
+  // if (!sellerReply) return res.status(400).json({ error: "Reply cannot be empty" }); // Removed to allow status-only updates
+
+  // Fetch existing to append
+  const existing = await prisma.complaint.findUnique({ where: { id: complaintId } });
+  if (!existing) return res.status(404).json({ error: "Complaint not found" });
+
+  const { status } = req.body; // sellerReply already destructured above
+  if (!sellerReply && !status) return res.status(400).json({ error: "Reply or status update required" });
+
+  let newReply = existing.sellerReply || "";
+  if (sellerReply) {
+    // Fallback if name is missing in token (old tokens)
+    const replierName = req.user!.name || (req.user!.role === "ADMIN" ? "Admin" : "Seller"); 
+    const prefix = `[${req.user!.role} - ${replierName}]: `;
+    newReply = newReply ? `${newReply}\n\n${prefix}${sellerReply}` : `${prefix}${sellerReply}`;
+  }
 
   const updated = await prisma.complaint.update({
     where: { id: complaintId },
-    data: { sellerReply },
+    data: { 
+      sellerReply: newReply, 
+      status: status || "PROCESSING" // Use provided status (e.g. RESOLVED) or default to PROCESSING
+    },
     include: { user: true },
   });
 
   // Email + notification to user
   if (updated.user?.email) {
-    await transporter.sendMail({
-      from: `"My Store" <${process.env.EMAIL_USER}>`,
-      to: updated.user.email,
-      subject: `Reply to your complaint: ${updated.subject}`,
-      text: `Seller replied: ${sellerReply}`,
-    });
+    try {
+      await transporter.sendMail({
+        from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
+        to: updated.user.email,
+        subject: `Reply to your complaint: ${updated.subject}`,
+        text: `Seller/Admin replied: ${sellerReply}`,
+      });
+    } catch (err) {
+       console.error("Failed to send reply email:", err);
+    }
   }
-  await createNotification({ userId: updated.user.id, message: `Seller replied to your complaint: ${updated.subject}`, link: `/complaints/${complaintId}` });
 
-  res.json({ message: "Seller replied to complaint & user notified", updated });
+  await createNotification({ 
+    userId: updated.user.id, 
+    message: `There's a reply to your complaint: ${updated.subject}`, 
+    link: `/dashboard/complaints` 
+  });
+
+  res.json({ message: "Reply added & user notified", updated });
 });
 
 // ----------------------
-// 5️⃣ User: Reply to seller
+// 5️⃣ User: Reply to seller/admin
 // ----------------------
 router.put("/user-reply/:id", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
   const complaintId = Number(req.params.id);
@@ -118,15 +128,38 @@ router.put("/user-reply/:id", authenticateToken, verifyRoles("USER"), async (req
   const userId = req.user!.id;
   if (!userReply) return res.status(400).json({ error: "Reply cannot be empty" });
 
-  const complaint = await prisma.complaint.findUnique({ where: { id: complaintId } });
-  if (!complaint || complaint.userId !== userId) return res.status(403).json({ error: "Not allowed" });
+  // Fetch existing to append
+  const existing = await prisma.complaint.findUnique({ where: { id: complaintId } });
+  if (!existing || existing.userId !== userId) return res.status(403).json({ error: "Not allowed" });
 
-  const updated = await prisma.complaint.update({ where: { id: complaintId }, data: { userReply } });
+  if (!userReply) return res.status(400).json({ error: "Reply cannot be empty" });
 
-  // Notification to seller/admin
-  await createNotification({ sellerId: null, message: `User replied to complaint #${complaintId}`, link: `/admin/complaints/${complaintId}` });
+  let newReply = existing.sellerReply || ""; // We append to the SAME field 'sellerReply' which acts as the chat history now
+  // Wait, if we use 'sellerReply' for ALL chat history, we should rename it to 'history' or 'messages' ideally, 
+  // but to avoid DB migration now, we will use 'sellerReply' as the shared chat buffer.
+  
+  if (userReply) {
+    const replierName = req.user!.name || "User";
+    const prefix = `[USER - ${replierName}]: `;
+    newReply = newReply ? `${newReply}\n\n${prefix}${userReply}` : `${prefix}${userReply}`;
+  }
 
-  res.json({ message: "User replied to seller & notification sent", updated });
+  const updated = await prisma.complaint.update({ 
+    where: { id: complaintId }, 
+    data: { 
+      sellerReply: newReply
+      // Users cannot resolve complaints anymore, only Admin/Seller can.
+    } 
+  });
+
+  // Notification to Admin
+  await createNotification({ 
+    role: "ADMIN", 
+    message: `User ${req.user!.name} replied to complaint #${complaintId}`, 
+    link: `/admin/complaints/${complaintId}` 
+  });
+
+  res.json({ message: "Reply sent & Admin notified", updated });
 });
 
 // ----------------------
@@ -135,7 +168,7 @@ router.put("/user-reply/:id", authenticateToken, verifyRoles("USER"), async (req
 router.delete("/seller/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   const complaintId = Number(req.params.id);
   await prisma.complaint.delete({ where: { id: complaintId } });
-  res.json({ message: "Complaint deleted by seller/admin" });
+  res.json({ message: "Complaint deleted" });
 });
 
 // ----------------------

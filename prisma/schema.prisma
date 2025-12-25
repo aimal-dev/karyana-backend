@@ -23,6 +23,10 @@ model User {
   reviews    Review[]
   
   notifications Notification[]
+  
+  address    String?
+  city       String?
+  phone      String?
 
   complaints       Complaint[]          @relation("UserComplaints")      // complaints created by user
   sellerComplaints Complaint[]          @relation("SellerComplaints")    // complaints received as seller
@@ -40,7 +44,7 @@ model User {
 //
 
 model Seller {
-  id         Int       @id @default(1) // Always 1 seller
+  id         Int       @id @default(autoincrement())
   name       String
   email      String    @unique
   password   String
@@ -63,9 +67,10 @@ model Seller {
 model Category {
   id        Int      @id @default(autoincrement())
   name      String
+  image     String?
 
-  seller    Seller   @relation(fields: [sellerId], references: [id])
-  sellerId  Int
+  seller    Seller?  @relation(fields: [sellerId], references: [id])
+  sellerId  Int?
 
   products  Product[]
 }
@@ -97,7 +102,16 @@ model Product {
 
   complaints  Complaint[] // optional complaints related to this product
 
+  images      ProductImage[]
+
   createdAt   DateTime   @default(now())
+}
+
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  url       String
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id])
 }
 
 //
@@ -115,6 +129,10 @@ model Order {
   total      Float
   status     String      @default("PENDING")
   createdAt  DateTime    @default(now())
+
+  shippingAddress String?
+  shippingCity    String?
+  shippingPhone   String?
 
   items      OrderItem[]
 
@@ -273,4 +291,10 @@ model Notification {
 
   user    User?   @relation(fields: [userId], references: [id])
   seller  Seller? @relation(fields: [sellerId], references: [id])
+}
+model StoreSetting {
+  id        Int      @id @default(1)
+  logoUrl   String?
+  storeName String?
+  updatedAt DateTime @updatedAt
 }

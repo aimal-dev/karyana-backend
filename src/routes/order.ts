@@ -31,11 +31,16 @@ const adminEmails = (process.env.ADMIN_EMAIL || "")
 /* --------------------------------------------------
    1️⃣ USER: Get all orders (pagination + filters)
 -------------------------------------------------- */
-router.get("/", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
-  const userId = req.user!.id;
-  const { page = 1, limit = 10, status, startDate, endDate, search } = req.query;
+router.get("/", authenticateToken, verifyRoles("USER", "SELLER", "ADMIN"), async (req: AuthRequest, res) => {
+  const { page = 1, limit = 10, status, startDate, endDate, search, userId: queryUserId } = req.query;
 
-  const where: any = { userId };
+  const where: any = {};
+  
+  if (req.user!.role === "USER") {
+    where.userId = req.user!.id;
+  } else if (queryUserId) {
+    where.userId = Number(queryUserId);
+  }
 
   if (status) where.status = String(status);
 
@@ -64,7 +69,17 @@ router.get("/", authenticateToken, verifyRoles("USER"), async (req: AuthRequest,
       where,
       skip: (Number(page) - 1) * Number(limit),
       take: Number(limit),
-      include: { items: { include: { product: true } }, payment: true },
+      include: { 
+        items: { include: { product: true } }, 
+        payment: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      },
       orderBy: { createdAt: "desc" },
     }),
     prisma.order.count({ where }),
@@ -118,15 +133,17 @@ router.post("/", authenticateToken, verifyRoles("USER"), async (req: AuthRequest
   res.json({ message: "Order created", order });
 });
 
+
+
 /* --------------------------------------------------
    3️⃣ USER: Checkout (Cart → Order + Payment + Emails + Notifications)
 -------------------------------------------------- */
 router.post("/checkout", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
   const userId = req.user!.id;
-  const { method } = req.body;
+  const { method, address, city, phone } = req.body;
 
-  if (!method) {
-    return res.status(400).json({ error: "Payment method is required" });
+  if (!method || !address || !city || !phone) {
+    return res.status(400).json({ error: "All fields (method, address, city, phone) are required" });
   }
 
   const cart = await prisma.cart.findUnique({
@@ -180,6 +197,9 @@ router.post("/checkout", authenticateToken, verifyRoles("USER"), async (req: Aut
         userId,
         total,
         status: "PENDING",
+        shippingAddress: address,
+        shippingCity: city,
+        shippingPhone: phone,
         items: {
           create: cart.items.map((item) => ({
             productId: item.productId,
@@ -278,6 +298,13 @@ router.post("/checkout", authenticateToken, verifyRoles("USER"), async (req: Aut
       link: `/seller/orders/${newOrder.id}`,
     });
   }
+
+  // Admin
+  await createNotification({
+    role: "ADMIN",
+    message: `New Order #${newOrder.id} placed by ${req.user!.name}. Total: Rs ${total.toLocaleString()}`,
+    link: `/admin/orders/${newOrder.id}`,
+  });
 
   res.json({
     message:
@@ -599,5 +626,29 @@ router.get(
     res.json({ orders });
   },
 );
+
+/* --------------------------------------------------
+   USER: Get single order
+-------------------------------------------------- */
+router.get("/:id", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
+  const userId = req.user!.id;
+  const orderId = Number(req.params.id);
+
+  if (isNaN(orderId)) return res.status(400).json({ error: "Invalid ID" });
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: { include: { product: true } },
+      payment: true,
+      trackingHistory: { orderBy: { createdAt: "desc" } }
+    }
+  });
+
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  if (order.userId !== userId) return res.status(403).json({ error: "Not allowed" });
+
+  res.json({ order });
+});
 
 export default router;
