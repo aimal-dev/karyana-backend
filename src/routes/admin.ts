@@ -104,11 +104,6 @@ router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res
   res.json({ message: "Settings updated successfully", settings });
 });
 
-// ✅ Get website settings
-router.get("/settings", async (req, res) => {
-  const settings = await prisma.storeSetting.findUnique({ where: { id: 1 } });
-  res.json({ settings });
-});
 
 // ✅ Get all users (Admin & Seller can see customer list)
 router.get("/users", authenticateToken, verifyRoles("ADMIN", "SELLER"), async (req, res) => {
