@@ -26,9 +26,11 @@ const app = express();
 
 // CORS Configuration - Allow frontend to access backend
 app.use(cors({
-  origin: process.env.NODE_ENV === "production" 
-    ? [process.env.FRONTEND_URL || "https://yourdomain.com"] // Production: Only your domain
-    : ["http://localhost:3000", "http://localhost:3001"], // Development: localhost
+  origin: [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://karyana-store.netlify.app"
+  ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
