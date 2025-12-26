@@ -1,13 +1,13 @@
 {
   "compilerOptions": {
-    "rootDir": "./",        // backend root
+    "rootDir": "./",
     "outDir": "dist",
-    "module": "ESNext",
+    "module": "NodeNext",
     "target": "ES2020",
     "strict": true,
     "esModuleInterop": true,
-    "moduleResolution": "node"
-    ,"allowImportingTsExtensions": true,
-    "noEmit": true
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": false,
+    "noEmit": false
   }
 }

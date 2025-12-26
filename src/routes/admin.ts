@@ -1,8 +1,8 @@
 import express from "express";
-import prisma from "../prismaClient.ts";
-import { authenticateToken, verifyRoles } from "../middlewares/auth.ts";
-import transporter from "../utils/mailer.ts";
-import createNotification from "../utils/notification-helper.ts";
+import prisma from "../prismaClient.js";
+import { authenticateToken, verifyRoles } from "../middlewares/auth.js";
+import transporter from "../utils/mailer.js";
+import createNotification from "../utils/notification-helper.js";
 
 const router = express.Router();
 
@@ -76,12 +76,29 @@ router.put("/sellers/:id/reject", authenticateToken, verifyRoles("ADMIN"), async
 
 // ✅ Change website settings
 router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res) => {
-  const { logoUrl, storeName } = req.body;
+  const { logoUrl, bannerUrl, storeName, primaryColor, trendingLimit, featuredLimit } = req.body;
   
   const settings = await prisma.storeSetting.upsert({
     where: { id: 1 },
-    update: { logoUrl, storeName },
-    create: { id: 1, logoUrl, storeName }
+    // @ts-ignore
+    update: { 
+      logoUrl, 
+      bannerUrl, 
+      storeName, 
+      primaryColor, 
+      trendingLimit: Number(trendingLimit), 
+      featuredLimit: Number(featuredLimit) 
+    },
+    // @ts-ignore
+    create: { 
+      id: 1, 
+      logoUrl, 
+      bannerUrl, 
+      storeName, 
+      primaryColor, 
+      trendingLimit: Number(trendingLimit), 
+      featuredLimit: Number(featuredLimit) 
+    }
   });
 
   res.json({ message: "Settings updated successfully", settings });
@@ -141,6 +158,26 @@ router.get("/sellers", authenticateToken, verifyRoles("ADMIN"), async (req, res)
     orderBy: { createdAt: "desc" }
   });
   res.json({ sellers });
+});
+
+// ✅ Change a seller's password (Admin Action)
+router.put("/sellers/:id/change-password", authenticateToken, verifyRoles("ADMIN"), async (req, res) => {
+  const sellerId = Number(req.params.id);
+  const { newPassword } = req.body;
+  
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters" });
+  }
+
+  const bcrypt = require("bcryptjs");
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  
+  await prisma.seller.update({
+    where: { id: sellerId },
+    data: { password: hashedPassword },
+  });
+
+  res.json({ message: "Seller password updated successfully" });
 });
 
 // ✅ Detailed Revenue Report (Per Product / Time Period)

@@ -1,7 +1,7 @@
 import express from "express";
-import { authenticateToken, verifyRoles } from "../middlewares/auth.ts";
-import type { AuthRequest } from "../../types/AuthRequest.ts";
-import prisma from "../prismaClient.ts";
+import { authenticateToken, verifyRoles } from "../middlewares/auth.js";
+import type { AuthRequest } from "../../types/AuthRequest.js";
+import prisma from "../prismaClient.js";
 import bcrypt from "bcryptjs";
 
 const router = express.Router();

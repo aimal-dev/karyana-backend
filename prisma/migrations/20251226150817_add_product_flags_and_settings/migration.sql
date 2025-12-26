@@ -1,0 +1,9 @@
+-- AlterTable
+ALTER TABLE "Product" ADD COLUMN     "isFeatured" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "isOnSale" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "isTrending" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "oldPrice" DOUBLE PRECISION;
+
+-- AlterTable
+ALTER TABLE "StoreSetting" ADD COLUMN     "featuredLimit" INTEGER NOT NULL DEFAULT 10,
+ADD COLUMN     "trendingLimit" INTEGER NOT NULL DEFAULT 10;

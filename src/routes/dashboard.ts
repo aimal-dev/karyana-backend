@@ -1,8 +1,8 @@
 // src/routes/dashboard.ts
 import express from "express";
-import prisma from "../prismaClient.ts";
-import { authenticateToken, verifyRoles } from "../middlewares/auth.ts";
-import type { AuthRequest } from "../../types/AuthRequest.ts";
+import prisma from "../prismaClient.js";
+import { authenticateToken, verifyRoles } from "../middlewares/auth.js";
+import type { AuthRequest } from "../../types/AuthRequest.js";
 
 const router = express.Router();
 

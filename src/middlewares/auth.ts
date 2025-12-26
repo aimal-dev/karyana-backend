@@ -1,6 +1,6 @@
 import type { Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import type { AuthRequest } from "../../types/AuthRequest.ts"; // agar types folder me rakha
+import type { AuthRequest } from "../../types/AuthRequest.js"; // agar types folder me rakha
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers["authorization"];

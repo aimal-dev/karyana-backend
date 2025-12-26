@@ -1,5 +1,5 @@
 import express from "express";
-import transporter from "../utils/mailer.ts";
+import transporter from "../utils/mailer.js";
 const router = express.Router();
 
 const adminEmails = (process.env.ADMIN_EMAIL || "")

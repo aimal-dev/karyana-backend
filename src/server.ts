@@ -1,25 +1,25 @@
 import express from "express";
 import cors from "cors";
-import authRoutes from "./routes/auth.ts";
-import sellerRoutes from "./routes/seller.ts";
-import productRoutes from "./routes/product.ts";
-import categoryRoutes from "./routes/category.ts";
-import complaintRoutes from "./routes/complaint.ts";
-import orderRoutes from "./routes/order.ts";
-import reviewRoutes from "./routes/review.ts";
-import userRoutes from "./routes/user.ts";
-import cartRoutes from "./routes/cart.ts";
-import adminRoutes from "./routes/admin.ts";
-import notificationRoutes from "./routes/notification.ts";
-import testMailRouter from "./routes/testMail.ts";
-import dashboardRoutes from "./routes/dashboard.ts";
+import authRoutes from "./routes/auth.js";
+import sellerRoutes from "./routes/seller.js";
+import productRoutes from "./routes/product.js";
+import categoryRoutes from "./routes/category.js";
+import complaintRoutes from "./routes/complaint.js";
+import orderRoutes from "./routes/order.js";
+import reviewRoutes from "./routes/review.js";
+import userRoutes from "./routes/user.js";
+import cartRoutes from "./routes/cart.js";
+import adminRoutes from "./routes/admin.js";
+import notificationRoutes from "./routes/notification.js";
+import testMailRouter from "./routes/testMail.js";
+import dashboardRoutes from "./routes/dashboard.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-import { authenticateToken, verifyRoles } from "./middlewares/auth.ts";
+import { authenticateToken, verifyRoles } from "./middlewares/auth.js";
 
 
 const app = express();

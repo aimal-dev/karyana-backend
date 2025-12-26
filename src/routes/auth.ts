@@ -1,10 +1,10 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import prisma from "../prismaClient.ts";
-import { authenticateToken } from "../middlewares/auth.ts";
-import type { AuthRequest } from "../../types/AuthRequest.ts";
-import createNotification from "../utils/notification-helper.ts";
+import prisma from "../prismaClient.js";
+import { authenticateToken } from "../middlewares/auth.js";
+import type { AuthRequest } from "../../types/AuthRequest.js";
+import createNotification from "../utils/notification-helper.js";
 
 const router = express.Router();
 
@@ -163,18 +163,41 @@ router.post("/seller-login", async (req, res) => {
 });
 
 // ------------------ Admin Login (Hardcoded) ------------------
-router.post("/admin-login", (req, res) => {
+router.post("/admin-login", async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ message: "Email and password required" });
 
   const ADMIN_EMAIL = "admin@example.com";
-  const ADMIN_PASSWORD = "admin123";
+  const INITIAL_PASSWORD = "admin123";
 
-  if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
-    return res.status(401).json({ message: "Invalid admin credentials" });
+  // 1. Check if admin exists in DB
+  // @ts-ignore
+  let admin = await prisma.user.findFirst({ where: { role: "ADMIN" } });
+
+  if (!admin) {
+    // If no admin in DB, check against initial hardcoded credentials
+    if (email === ADMIN_EMAIL && password === INITIAL_PASSWORD) {
+      // Create first admin in DB so they can change password later
+      const hashedPassword = await bcrypt.hash(INITIAL_PASSWORD, 10);
+      admin = await prisma.user.create({
+        data: { 
+          name: "System Admin", 
+          email: ADMIN_EMAIL, 
+          password: hashedPassword,
+          // @ts-ignore
+          role: "ADMIN"
+        }
+      });
+    } else {
+      return res.status(401).json({ message: "Invalid admin credentials" });
+    }
+  } else {
+    // Admin exists in DB, compare passwords
+    const match = await bcrypt.compare(password, admin.password);
+    if (!match) return res.status(401).json({ error: "Incorrect admin password" });
   }
 
-  const token = jwt.sign({ id: 0, role: "ADMIN", name: "Super Admin" }, process.env.JWT_SECRET || "secretkey", { expiresIn: "7d" });
+  const token = jwt.sign({ id: admin.id, role: "ADMIN", name: admin.name }, process.env.JWT_SECRET || "secretkey", { expiresIn: "7d" });
   res.json({ message: "Admin login successful", token });
 });
 
@@ -205,6 +228,14 @@ router.put("/change-password", authenticateToken, async (req: AuthRequest, res) 
 
      const hashedPassword = await bcrypt.hash(newPassword, 10);
      await prisma.seller.update({ where: { id: userId }, data: { password: hashedPassword } });
+  } else if (role === "ADMIN") {
+     const admin = await prisma.user.findUnique({ where: { id: userId } });
+     if (!admin) return res.status(404).json({ error: "Admin not found" });
+     const match = await bcrypt.compare(currentPassword, admin.password);
+     if (!match) return res.status(401).json({ error: "Incorrect current password" });
+     const hashedPassword = await bcrypt.hash(newPassword, 10);
+     // @ts-ignore
+     await prisma.user.update({ where: { id: userId }, data: { password: hashedPassword } });
   } else {
      return res.status(403).json({ error: "Not allowed for this role" });
   }

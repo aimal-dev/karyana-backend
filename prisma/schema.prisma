@@ -27,6 +27,7 @@ model User {
   address    String?
   city       String?
   phone      String?
+  role       String      @default("USER") // USER, ADMIN
 
   complaints       Complaint[]          @relation("UserComplaints")      // complaints created by user
   sellerComplaints Complaint[]          @relation("SellerComplaints")    // complaints received as seller
@@ -103,6 +104,12 @@ model Product {
   complaints  Complaint[] // optional complaints related to this product
 
   images      ProductImage[]
+  
+  isFeatured  Boolean    @default(false)
+  isTrending  Boolean    @default(false)
+  isOnSale    Boolean    @default(false)
+  oldPrice    Float?
+  tags        String[]   @default([])
 
   createdAt   DateTime   @default(now())
 }
@@ -293,8 +300,12 @@ model Notification {
   seller  Seller? @relation(fields: [sellerId], references: [id])
 }
 model StoreSetting {
-  id        Int      @id @default(1)
-  logoUrl   String?
-  storeName String?
-  updatedAt DateTime @updatedAt
+  id               Int      @id @default(1)
+  logoUrl          String?
+  bannerUrl        String?
+  storeName        String?
+  primaryColor     String   @default("#80B500")
+  trendingLimit    Int      @default(10)
+  featuredLimit    Int      @default(10)
+  updatedAt        DateTime @updatedAt
 }

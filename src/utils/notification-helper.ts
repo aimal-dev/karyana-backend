@@ -1,4 +1,4 @@
-import prisma from "../prismaClient.ts";
+import prisma from "../prismaClient.js";
 
 async function createNotification(data: {
   userId?: number;

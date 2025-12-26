@@ -4,9 +4,9 @@
 // ✅ User: Can view, add, update, and remove items from their own cart
 
 import express from "express";
-import { authenticateToken, verifyRoles } from "../middlewares/auth.ts";
-import prisma from "../prismaClient.ts";
-import type { AuthRequest } from "../../types/AuthRequest.ts";
+import { authenticateToken, verifyRoles } from "../middlewares/auth.js";
+import prisma from "../prismaClient.js";
+import type { AuthRequest } from "../../types/AuthRequest.js";
 
 const router = express.Router();
 

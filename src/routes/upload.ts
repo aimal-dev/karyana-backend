@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import path from "path";
-import { authenticateToken } from "../middlewares/auth.ts";
+import { authenticateToken } from "../middlewares/auth.js";
 
 const router = express.Router();
 
