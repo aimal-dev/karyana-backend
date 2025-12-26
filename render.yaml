@@ -1,7 +1,8 @@
+version: "1"
 services:
   - type: web
     name: karyana-backend
-    env: node
+    runtime: node
     plan: free
     buildCommand: npm install && npm run build
     startCommand: npm start
@@ -9,10 +10,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false # You will paste this from Neon
       - key: JWT_SECRET
-        generateValue: true # Render will create a secure one for you
+        generateValue: true
       - key: FRONTEND_URL
-        sync: false # You will paste your Netlify URL here later
+        value: "*"
       - key: PORT
         value: 5000
