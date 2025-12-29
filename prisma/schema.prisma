@@ -117,8 +117,21 @@ model Product {
   isOnSale    Boolean    @default(false)
   oldPrice    Float?
   tags        String[]   @default([])
+  variants    ProductVariant[]
 
   createdAt   DateTime   @default(now())
+}
+
+model ProductVariant {
+  id        Int      @id @default(autoincrement())
+  name      String   // e.g. "Small", "Red"
+  price     Float
+  stock     Int      @default(0)
+  
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId Int
+
+  cartItems CartItem[]
 }
 
 model ProductImage {
@@ -172,6 +185,8 @@ model OrderItem {
   product    Product   @relation(fields: [productId], references: [id])
   productId  Int
 
+  variantName String?  // Snapshot of variant name e.g. "Small"
+
   qty        Int
   price      Float
 }
@@ -216,6 +231,7 @@ model Review {
 // -------------------------
 //        COMPLAINT
 // -------------------------
+//
 model Complaint {
   id         Int       @id @default(autoincrement())
 
@@ -265,8 +281,13 @@ model CartItem {
   id        Int      @id @default(autoincrement())
   cartId    Int
   cart      Cart     @relation(fields: [cartId], references: [id])
+  
   productId Int
   product   Product  @relation(fields: [productId], references: [id])
+  
+  variantId Int?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+
   qty       Int
 }
 
@@ -314,5 +335,6 @@ model StoreSetting {
   primaryColor     String   @default("#80B500")
   trendingLimit    Int      @default(10)
   featuredLimit    Int      @default(10)
+  categoriesLimit  Int      @default(10)
   updatedAt        DateTime @updatedAt
 }

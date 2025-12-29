@@ -84,8 +84,8 @@ router.get("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res
 });
 
 // ✅ Change website settings
-router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res) => {
-  const { logoUrl, bannerUrl, storeName, primaryColor, trendingLimit, featuredLimit } = req.body;
+  router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res) => {
+  const { logoUrl, bannerUrl, storeName, primaryColor, trendingLimit, featuredLimit, categoriesLimit } = req.body;
   
   const settings = await prisma.storeSetting.upsert({
     where: { id: 1 },
@@ -96,7 +96,8 @@ router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res
       storeName, 
       primaryColor, 
       trendingLimit: Number(trendingLimit), 
-      featuredLimit: Number(featuredLimit) 
+      featuredLimit: Number(featuredLimit),
+      categoriesLimit: Number(categoriesLimit)
     },
     // @ts-ignore
     create: { 
@@ -106,7 +107,8 @@ router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res
       storeName, 
       primaryColor, 
       trendingLimit: Number(trendingLimit), 
-      featuredLimit: Number(featuredLimit) 
+      featuredLimit: Number(featuredLimit),
+      categoriesLimit: Number(categoriesLimit)
     }
   });
 

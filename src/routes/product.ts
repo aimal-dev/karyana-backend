@@ -14,13 +14,26 @@ router.get("/profile", authenticateToken, verifyRoles("SELLER", "ADMIN"), async 
 
 // CREATE new product
 router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const { title, description, price, stock, image, categoryId, images, tags } = req.body;
+  const { title, description, price, stock, image, categoryId, images, tags, variants } = req.body;
   
-  // If Admin is adding, they can optionally pass a sellerId. 
-  // If not provided OR if it's a Seller adding, use their own ID.
   let sellerId = req.user!.id;
   if (req.user!.role === "ADMIN" && req.body.sellerId) {
     sellerId = Number(req.body.sellerId);
+  }
+
+  // Check for Duplicate
+  const existing = await prisma.product.findFirst({
+    where: {
+      title: { equals: title, mode: "insensitive" },
+      sellerId: sellerId
+    }
+  });
+
+  if (existing) {
+    return res.status(409).json({ 
+      error: "Product with this name already exists.", 
+      existingId: existing.id 
+    });
   }
 
   // Parse tags
@@ -37,7 +50,7 @@ router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: 
       description,
       price: Number(price),
       stock: Number(stock) || 0,
-      image, // featured image
+      image, 
       sellerId,
       categoryId: Number(categoryId),
       isFeatured: Boolean(req.body.isFeatured),
@@ -47,25 +60,32 @@ router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: 
       tags: tagsList,
       images: {
         create: (images || []).map((url: string) => ({ url }))
+      },
+      variants: {
+        create: (variants || []).map((v: any) => ({
+           name: v.name,
+           price: Number(v.price),
+           stock: Number(v.stock) || 0
+        }))
       }
     },
-    include: { images: true }
+    include: { images: true, variants: true }
   });
 
   res.json({ message: "Product created", product });
 });
 
-
-
 // UPDATE product
 router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   const productId = Number(req.params.id);
-  const { title, description, price, stock, image, categoryId, images, tags } = req.body;
+  const { title, description, price, stock, image, categoryId, images, tags, variants } = req.body;
 
-  // Re-sync images: delete all and create new
+  // Re-sync images
   await prisma.productImage.deleteMany({ where: { productId } });
+  
+  // Re-sync variants (simple replace strategy)
+  await prisma.productVariant.deleteMany({ where: { productId } });
 
-  // Parse tags
   let tagsList: string[] = [];
   if (Array.isArray(tags)) {
     tagsList = tags.map((t: string) => t.toLowerCase().trim());
@@ -89,9 +109,16 @@ router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req
       tags: tagsList,
       images: {
         create: (images || []).map((url: string) => ({ url }))
+      },
+      variants: {
+        create: (variants || []).map((v: any) => ({
+           name: v.name,
+           price: Number(v.price),
+           stock: Number(v.stock) || 0
+        }))
       }
     },
-    include: { images: true }
+    include: { images: true, variants: true }
   });
 
   res.json({ message: "Product updated", updated });
