@@ -168,13 +168,34 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
 router.get("/categories/export", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   try {
     const sellerId = req.user!.id;
-    const where = req.user!.role === "ADMIN" ? {} : { sellerId };
+    // Allow seeing own categories + global categories (sellerId: null)
+    // If Admin, they see everything anyway because they see IDs and Nulls? 
+    // Actually best to just open it up:
+    // Admin -> see ALL.
+    // Seller -> see Own + Global.
+    
+    let where: any = {};
+    if (req.user!.role !== "ADMIN") {
+        where = {
+            OR: [
+                { sellerId: Number(sellerId) },
+                { sellerId: null }
+            ]
+        };
+    }
+    // If ADMIN, where remains {} -> Select All
 
     const categories = await prisma.category.findMany({ where });
 
+    // Sanitize data for CSV
+    const sanitizedCategories = categories.map((c: any) => ({
+      ...c,
+      image: c.image && c.image.startsWith("data:image") ? "BASE64_IMAGE_KEEP_EXISTING" : c.image
+    }));
+
     const fields = ["id", "name", "image"];
     const json2csv = new Parser({ fields });
-    const csvData = json2csv.parse(categories);
+    const csvData = json2csv.parse(sanitizedCategories);
 
     res.header("Content-Type", "text/csv");
     res.attachment(`categories-export-${Date.now()}.csv`);
@@ -197,18 +218,51 @@ router.post("/categories/import", authenticateToken, verifyRoles("SELLER", "ADMI
     .on("data", (data) => results.push(data))
     .on("end", async () => {
       try {
-        const createdCategories = [];
+        let createdCount = 0;
+        let updatedCount = 0;
+
         for (const row of results) {
-          const cat = await prisma.category.create({
-            data: {
-              name: row.name || row.Name,
-              image: row.image || row.Image || "",
-              sellerId: req.user!.role === "ADMIN" ? null : sellerId
-            }
-          });
-          createdCategories.push(cat);
+          const name = row.Name || row.name;
+          if (!name) continue;
+
+          // Image handling
+          const imageUrl = row.Image || row.image || "";
+          const shouldUpdateImage = imageUrl && imageUrl !== "BASE64_IMAGE_KEEP_EXISTING";
+
+          const id = row.ID || row.id;
+
+          const dataToSave: any = {
+             name,
+             sellerId: req.user!.role === "ADMIN" ? null : sellerId
+          };
+
+          if (shouldUpdateImage) {
+            dataToSave.image = imageUrl;
+          }
+
+          if (id) {
+             const existing = await prisma.category.findUnique({ where: { id: Number(id) } });
+             if (existing) {
+                // Update
+                if (req.user!.role === "ADMIN" || existing.sellerId === sellerId) {
+                   await prisma.category.update({
+                      where: { id: Number(id) },
+                      data: dataToSave
+                   });
+                   updatedCount++;
+                }
+             } else {
+                // Create
+                const c = await prisma.category.create({ data: { ...dataToSave, image: dataToSave.image || "" } });
+                createdCount++;
+             }
+          } else {
+             // Create
+             const c = await prisma.category.create({ data: { ...dataToSave, image: dataToSave.image || "" } });
+             createdCount++;
+          }
         }
-        res.json({ message: `${createdCategories.length} categories imported successfully`, count: createdCategories.length });
+        res.json({ message: `Processed Categories: ${createdCount} created, ${updatedCount} updated.`, count: createdCount + updatedCount });
       } catch (error: any) {
         res.status(500).json({ error: "Import failed during database sync", details: error.message });
       }
