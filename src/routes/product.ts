@@ -138,8 +138,9 @@ router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (
     await prisma.product.delete({ where: { id: productId } });
     res.json({ message: "Product deleted" });
   } catch (error: any) {
+    // P2003 should no longer occur for OrderItems due to onDelete: SetNull in schema
     if (error.code === 'P2003') {
-        return res.status(400).json({ error: "Cannot delete product associated with existing Orders." });
+        return res.status(400).json({ error: "Cannot delete product. It might be linked to other critical data." });
     }
     if (error.code === 'P2025') {
         return res.status(404).json({ error: "Product not found" });
