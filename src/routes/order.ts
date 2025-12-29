@@ -139,182 +139,110 @@ router.post("/", authenticateToken, verifyRoles("USER"), async (req: AuthRequest
    3️⃣ USER: Checkout (Cart → Order + Payment + Emails + Notifications)
 -------------------------------------------------- */
 router.post("/checkout", authenticateToken, verifyRoles("USER"), async (req: AuthRequest, res) => {
-  const userId = req.user!.id;
-  const { method, address, city, phone } = req.body;
+  try {
+    const userId = req.user!.id;
+    const { method, address, city, phone } = req.body;
 
-  if (!method || !address || !city || !phone) {
-    return res.status(400).json({ error: "All fields (method, address, city, phone) are required" });
-  }
+    console.log("Checkout initiated for user:", userId);
 
-  const cart = await prisma.cart.findUnique({
-    where: { userId },
-    include: {
-      items: {
-        include: {
-          product: {
-            include: { seller: true },
+    if (!method || !address || !city || !phone) {
+      return res.status(400).json({ error: "All fields (method, address, city, phone) are required" });
+    }
+
+    const cart = await prisma.cart.findUnique({
+      where: { userId },
+      include: {
+        items: {
+          include: {
+            product: { include: { seller: true } },
           },
         },
       },
-    },
-  });
-
-  if (!cart || cart.items.length === 0) {
-    return res.status(400).json({ error: "Cart is empty" });
-  }
-
-  // ✅ Stock check
-  for (const item of cart.items) {
-    if (item.qty > item.product.stock) {
-      return res
-        .status(400)
-        .json({ error: `Not enough stock for ${item.product.title}` });
-    }
-  }
-
-  const total = cart.items.reduce(
-    (sum, item) => sum + item.qty * item.product.price,
-    0,
-  );
-
-  // ✅ Seller-wise items map
-  const sellerMap: Record<number, { email: string; items: string[] }> = {};
-  for (const item of cart.items) {
-    const sellerId = item.product.seller.id;
-    if (!sellerMap[sellerId]) {
-      sellerMap[sellerId] = {
-        email: item.product.seller.email,
-        items: [],
-      };
-    }
-    sellerMap[sellerId].items.push(`${item.product.title} x${item.qty}`);
-  }
-
-  // ✅ Transaction: order + payment + stock decrement + clear cart
-  const newOrder = await prisma.$transaction(async (tx) => {
-    const order = await tx.order.create({
-      data: {
-        userId,
-        total,
-        status: "PENDING",
-        shippingAddress: address,
-        shippingCity: city,
-        shippingPhone: phone,
-        items: {
-          create: cart.items.map((item) => ({
-            productId: item.productId,
-            qty: item.qty,
-            price: item.product.price,
-          })),
-        },
-      },
-      include: { items: true },
     });
 
-    await tx.payment.create({
-      data: {
-        orderId: order.id,
-        method,
-        amount: total,
-        status: "PENDING",
-      },
-    });
+    if (!cart || cart.items.length === 0) {
+      return res.status(400).json({ error: "Cart is empty" });
+    }
 
+    // ✅ Stock check
     for (const item of cart.items) {
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stock: { decrement: item.qty } },
-      });
+      if (item.qty > item.product.stock) {
+        return res
+          .status(400)
+          .json({ error: `Not enough stock for ${item.product.title}` });
+      }
     }
 
-    await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+    const total = cart.items.reduce((sum, item) => sum + item.qty * item.product.price, 0);
 
-    return order;
-  });
+    // ✅ Minimal Transaction
+    const newOrder = await prisma.$transaction(async (tx) => {
+      // 1. Create Order
+      const order = await tx.order.create({
+        data: {
+          userId,
+          total,
+          status: "PENDING",
+          shippingAddress: address,
+          shippingCity: city,
+          shippingPhone: phone,
+          items: {
+            create: cart.items.map((item) => ({
+              productId: item.productId,
+              qty: item.qty,
+              price: item.product.price,
+            })),
+          },
+        },
+      });
 
-  /* ------------ EMAILS ------------ */
+      // 2. Create Payment
+      await tx.payment.create({
+        data: {
+          orderId: order.id,
+          method,
+          amount: total,
+          status: "PENDING",
+        },
+      });
 
-  // ✅ 1) Sellers ko email
-  const sellerEmailDebug: any[] = [];
-  for (const sellerIdStr in sellerMap) {
-    const sellerId = Number(sellerIdStr);
-    const { email, items } = sellerMap[sellerId];
+      // 3. Update Stock
+      for (const item of cart.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stock: { decrement: item.qty } },
+        });
+      }
 
-    const info = await transporter.sendMail({
-      from: `"My Store" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: `New Order Received: #${newOrder.id}`,
-      text: `You have a new order with products: ${items.join(
-        ", ",
-      )}. Total: $${total}`,
+      // 4. Clear Cart
+      await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+
+      return order;
     });
 
-    sellerEmailDebug.push({
-      sellerId,
-      to: email,
-      accepted: info.accepted,
-      rejected: info.rejected,
+    console.log("Order created successfully:", newOrder.id);
+
+    // ✅ Note: Emails and notifications are temporarily disabled to isolate the 500 error
+    
+    return res.json({
+      success: true,
+      message: "Order placed successfully!",
+      order: {
+        id: newOrder.id,
+        total: newOrder.total
+      }
+    });
+
+  } catch (err: any) {
+    console.error("CRITICAL CHECKOUT ERROR:", err);
+    return res.status(500).json({
+      error: "Checkout Process Failed",
+      message: err.message || "Unknown Error",
+      prismaCode: err.code, // Useful for debugging Prisma issues
+      meta: err.meta,
+      suggestion: "Please ensure your live database is updated (npx prisma db push)"
     });
   }
-
-  // ✅ 2) Admin ko summary email
-  let adminEmailDebug: any = null;
-  if (adminEmails.length) {
-    const itemsSummary = cart.items
-      .map(
-        (item) =>
-          `${item.product.title} x${item.qty} (seller: ${item.product.seller.name})`,
-      )
-      .join("\n");
-
-    const info = await transporter.sendMail({
-      from: `"My Store" <${process.env.EMAIL_USER}>`,
-      to: adminEmails,        // ❗ yahan sirf 'to', 'adminEmails:' prop nahi
-      subject: `New Order Placed: #${newOrder.id}`,
-      text: `New order placed by user ID ${userId}\n\nItems:\n${itemsSummary}\n\nTotal: $${total}`,
-    });
-
-    adminEmailDebug = {
-      to: adminEmails,
-      accepted: info.accepted,
-      rejected: info.rejected,
-    };
-  }
-
-  /* ------------ NOTIFICATIONS ------------ */
-
-  // User
-  await createNotification({
-    userId,
-    message: `Your order #${newOrder.id} has been placed successfully.`,
-    link: `/orders/${newOrder.id}`,
-  });
-
-  // Sellers
-  for (const item of cart.items) {
-    await createNotification({
-      sellerId: item.product.seller.id,
-      message: `New order #${newOrder.id} includes your products.`,
-      link: `/seller/orders/${newOrder.id}`,
-    });
-  }
-
-  // Admin
-  await createNotification({
-    role: "ADMIN",
-    message: `New Order #${newOrder.id} placed by ${req.user!.name}. Total: Rs ${total.toLocaleString()}`,
-    link: `/admin/orders/${newOrder.id}`,
-  });
-
-  res.json({
-    message:
-      "Checkout completed — Order & Payment created, emails sent to sellers and admin, notifications sent",
-    order: newOrder,
-    emailDebug: {
-      sellers: sellerEmailDebug,
-      admin: adminEmailDebug,
-    },
-  });
 });
 
 /* --------------------------------------------------
@@ -435,10 +363,18 @@ router.put(
     const updated = await prisma.order.update({
       where: { id: orderId },
       data: { status },
-      include: { user: true },
+      include: { user: true, payment: true },
     });
 
-     await prisma.trackingHistory.create({
+    // If order is delivered, automatically mark payment as success
+    if (status === "DELIVERED" && updated.payment) {
+      await prisma.payment.update({
+        where: { id: updated.payment.id },
+        data: { status: "SUCCESS" }
+      });
+    }
+
+    await prisma.trackingHistory.create({
       data: {
         orderId: updated.id,
         status,
@@ -477,10 +413,19 @@ router.post("/tracking", authenticateToken, verifyRoles("SELLER"), async (req, r
     const { orderId, status, message } = req.body;
 
     // 1. Update order status
-    await prisma.order.update({
+    const updatedOrder = await prisma.order.update({
       where: { id: orderId },
-      data: { status }
+      data: { status },
+      include: { payment: true }
     });
+
+    // If order is delivered, automatically mark payment as success
+    if (status === "DELIVERED" && updatedOrder.payment) {
+      await prisma.payment.update({
+        where: { id: updatedOrder.payment.id },
+        data: { status: "SUCCESS" }
+      });
+    }
 
     // 2. Add tracking history record
     const track = await prisma.trackingHistory.create({
@@ -493,7 +438,7 @@ router.post("/tracking", authenticateToken, verifyRoles("SELLER"), async (req, r
 
     return res.json({
       success: true,
-      message: "Tracking updated",
+      message: "Tracking updated and payment synced",
       track
     });
   } catch (error) {

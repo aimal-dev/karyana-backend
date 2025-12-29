@@ -8,9 +8,21 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
 
   if (!token) return res.status(401).json({ message: "No token provided" });
 
-  jwt.verify(token, process.env.JWT_SECRET || "secretkey", (err, user) => {
-    if (err) return res.status(403).json({ message: "Invalid token" });
-    req.user = user; // TypeScript ab error nahi dega
+  const secret = process.env.JWT_SECRET || "secretkey";
+  if (!process.env.JWT_SECRET) {
+    console.warn("WARNING: JWT_SECRET is not defined in environment variables, using fallback.");
+  }
+
+  jwt.verify(token, secret, (err, user) => {
+    if (err) {
+      console.error("JWT Verification Failed:", err.message);
+      return res.status(403).json({ 
+        message: "Invalid token", 
+        error: err.message,
+        hint: "Clear your browser storage and login again."
+      });
+    }
+    req.user = user; 
     next();
   });
 };

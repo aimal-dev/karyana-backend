@@ -215,7 +215,16 @@ router.get(
       openComplaints,
       last7DaysSalesAdmin,
     ] = await Promise.all([
-      prisma.user.count(),
+      prisma.user.count({ 
+        where: { 
+          AND: [
+            { role: "USER" },
+            { NOT: { email: "admin@example.com" } },
+            { NOT: { email: "aimal@yopmail.com" } }, // Added another potential admin email
+            { NOT: { name: "System Admin" } }
+          ]
+        } 
+      }),
       prisma.seller.count(),
       prisma.seller.count({ where: { approved: true } }),
       prisma.seller.count({ where: { approved: false } }),
@@ -267,6 +276,7 @@ router.get(
 
     const [recentUsers, recentOrders, recentPendingSellers] = await Promise.all([
       prisma.user.findMany({
+        where: { role: "USER" },
         orderBy: { createdAt: "desc" },
         take: 5,
         select: { id: true, name: true, email: true, createdAt: true },

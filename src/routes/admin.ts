@@ -74,6 +74,12 @@ router.put("/sellers/:id/reject", authenticateToken, verifyRoles("ADMIN"), async
   res.json({ message: "Seller rejected", updatedSeller });
 });
 
+// ✅ Get website settings (Admin version)
+router.get("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res) => {
+  const settings = await prisma.storeSetting.findUnique({ where: { id: 1 } });
+  res.json({ settings });
+});
+
 // ✅ Change website settings
 router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res) => {
   const { logoUrl, bannerUrl, storeName, primaryColor, trendingLimit, featuredLimit } = req.body;
@@ -108,6 +114,13 @@ router.put("/settings", authenticateToken, verifyRoles("ADMIN"), async (req, res
 // ✅ Get all users (Admin & Seller can see customer list)
 router.get("/users", authenticateToken, verifyRoles("ADMIN", "SELLER"), async (req, res) => {
   const users = await prisma.user.findMany({
+    where: {
+      AND: [
+        { role: "USER" },
+        { NOT: { email: "admin@example.com" } },
+        { NOT: { name: "System Admin" } }
+      ]
+    },
     select: {
       id: true,
       name: true,

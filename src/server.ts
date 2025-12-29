@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import authRoutes from "./routes/auth.js";
@@ -89,6 +90,9 @@ app.use("/settings", settingsRoutes);
 // app.use("/api/upload", uploadRoutes);
 
 
-app.listen(5000, () => console.log("Server running on port 5000"));
+app.listen(5000, () => {
+  console.log("Server running on port 5000");
+  console.log("User management filters updated v2.");
+});
 
 export default app;
