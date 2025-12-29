@@ -46,6 +46,22 @@ router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (
   res.json({ message: "Category deleted" });
 });
 
+// BULK DELETE categories
+router.post("/delete-many", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "Invalid IDs" });
+
+  const where: any = { id: { in: ids.map(Number) } };
+  
+  // If Seller, restrict to own categories (cannot delete global/admin ones)
+  if (req.user!.role !== "ADMIN") {
+    where.sellerId = req.user!.id;
+  }
+
+  const result = await prisma.category.deleteMany({ where });
+  res.json({ message: "Categories deleted", count: result.count });
+});
+
 // -------------------- User Routes --------------------
 
 // GET all categories (for users)

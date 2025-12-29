@@ -132,6 +132,22 @@ router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (
   res.json({ message: "Product deleted" });
 });
 
+// BULK DELETE products
+router.post("/delete-many", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "Invalid IDs" });
+
+  const where: any = { id: { in: ids.map(Number) } };
+  
+  // If Seller, restrict to own products
+  if (req.user!.role !== "ADMIN") {
+    where.sellerId = req.user!.id;
+  }
+
+  const result = await prisma.product.deleteMany({ where });
+  res.json({ message: "Products deleted", count: result.count });
+});
+
 // -------------------- User Routes --------------------
 
 

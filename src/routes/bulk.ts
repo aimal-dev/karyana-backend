@@ -125,10 +125,9 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
           const id = row.ID || row.id;
 
           if (id) {
-            // Update existing
+            // Update existing by ID
             const existing = await prisma.product.findUnique({ where: { id: Number(id) } });
             if (existing) {
-              // Only allow update if Admin or Owner
               if (req.user!.role === "ADMIN" || existing.sellerId === sellerId) {
                  await prisma.product.update({
                    where: { id: Number(id) },
@@ -137,20 +136,52 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
                  updatedCount++;
               }
             } else {
-               // ID provided but not found -> Create new? Or skip? 
-               // usually safe to create as new if ID not found is rare, but usually ID means update.
-               // Let's treat as create new (ignoring ID) or create with new ID.
-               const p = await prisma.product.create({
-                 data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+               // ID provided but not found -> Check Name before creating
+               const duplicate = await prisma.product.findFirst({
+                 where: {
+                   title: { equals: productData.title, mode: "insensitive" },
+                   sellerId: row.SellerID ? Number(row.SellerID) : sellerId
+                 }
                });
-               createdCount++;
+
+               if (duplicate) {
+                  // Update the duplicate instead of creating new
+                  await prisma.product.update({
+                    where: { id: duplicate.id },
+                    data: productData
+                  });
+                  updatedCount++;
+               } else {
+                  // Create new
+                  await prisma.product.create({
+                    data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+                  });
+                  createdCount++;
+               }
             }
           } else {
-            // Create new
-            const p = await prisma.product.create({
-              data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+            // No ID -> Check Name for Duplicates first
+            const duplicate = await prisma.product.findFirst({
+              where: {
+                title: { equals: productData.title, mode: "insensitive" },
+                sellerId: row.SellerID ? Number(row.SellerID) : sellerId
+              }
             });
-            createdCount++;
+
+            if (duplicate) {
+               // Update existing duplicate
+               await prisma.product.update({
+                 where: { id: duplicate.id },
+                 data: productData
+               });
+               updatedCount++;
+            } else {
+                // Create new
+                await prisma.product.create({
+                  data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+                });
+                createdCount++;
+            }
           }
         }
         res.json({ message: `Processed successfully: ${createdCount} created, ${updatedCount} updated.` });
