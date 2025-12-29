@@ -126,26 +126,57 @@ router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req
 
 // DELETE product
 router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const productId = Number(req.params.id);
+  try {
+    const productId = Number(req.params.id);
 
-  await prisma.product.delete({ where: { id: productId } });
-  res.json({ message: "Product deleted" });
+    // Manual Cascade Delete
+    await prisma.cartItem.deleteMany({ where: { productId } });
+    await prisma.productImage.deleteMany({ where: { productId } });
+    await prisma.productVariant.deleteMany({ where: { productId } });
+    await prisma.review.deleteMany({ where: { productId } });
+
+    await prisma.product.delete({ where: { id: productId } });
+    res.json({ message: "Product deleted" });
+  } catch (error: any) {
+    if (error.code === 'P2003') {
+        return res.status(400).json({ error: "Cannot delete product associated with existing Orders." });
+    }
+    if (error.code === 'P2025') {
+        return res.status(404).json({ error: "Product not found" });
+    }
+    res.status(500).json({ error: "Delete failed", details: error.message });
+  }
 });
 
 // BULK DELETE products
 router.post("/delete-many", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const { ids } = req.body;
-  if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "Invalid IDs" });
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "Invalid IDs" });
 
-  const where: any = { id: { in: ids.map(Number) } };
-  
-  // If Seller, restrict to own products
-  if (req.user!.role !== "ADMIN") {
-    where.sellerId = req.user!.id;
+    const where: any = { id: { in: ids.map(Number) } };
+    
+    // If Seller, restrict to own products
+    if (req.user!.role !== "ADMIN") {
+      where.sellerId = req.user!.id;
+    }
+
+    // Manual Cascade Delete for tables that might trigger constraints
+    // Note: OrderItem constraint usually prevents deletion if product was ordered.
+    await prisma.cartItem.deleteMany({ where: { productId: { in: ids.map(Number) } } });
+    await prisma.productImage.deleteMany({ where: { productId: { in: ids.map(Number) } } });
+    await prisma.productVariant.deleteMany({ where: { productId: { in: ids.map(Number) } } });
+    await prisma.review.deleteMany({ where: { productId: { in: ids.map(Number) } } });
+
+    const result = await prisma.product.deleteMany({ where });
+    res.json({ message: "Products deleted", count: result.count });
+  } catch (error: any) {
+    console.error("Bulk Delete Error:", error);
+    if (error.code === 'P2003') {
+        return res.status(400).json({ error: "Cannot delete products associated with existing Orders." });
+    }
+    res.status(500).json({ error: "Delete failed", details: error.message });
   }
-
-  const result = await prisma.product.deleteMany({ where });
-  res.json({ message: "Products deleted", count: result.count });
 });
 
 // -------------------- User Routes --------------------
