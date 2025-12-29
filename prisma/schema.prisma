@@ -60,8 +60,9 @@ model Seller {
   categories Category[]
   notifications Notification[]
   
-  approved  Boolean  @default(false)
-
+  phone            String?
+  whatsappApiKey   String?
+  approved         Boolean  @default(false)
   createdAt  DateTime  @default(now())
 }
 

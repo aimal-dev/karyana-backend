@@ -6,6 +6,7 @@ import prisma from "../prismaClient.js";
 import type { AuthRequest } from "../../types/AuthRequest.js";
 import nodemailer from "nodemailer";
 import createNotification from "../utils/notification-helper.js";
+import { sendWhatsAppMessage } from "../utils/whatsapp.js";
 
 const router = express.Router();
 
@@ -282,6 +283,27 @@ router.post("/checkout", authenticateToken, verifyRoles("USER"), async (req: Aut
             }).catch(e => console.error("Admin Email Error:", e));
           }
         } catch (emailErr) { console.error("Checkout Email Error:", emailErr); }
+
+        // 4. WhatsApp Notifications
+        try {
+          // Notify Admin via WhatsApp
+          const adminPhone = process.env.WHATSAPP_ADMIN_PHONE;
+          const adminApiKey = process.env.WHATSAPP_ADMIN_API_KEY;
+          if (adminPhone && adminApiKey) {
+            const adminMsg = `📦 *New Order #${newOrder.id}*\n👤 Customer: ${req.user!.name}\n💰 Total: Rs ${total.toLocaleString()}\n📍 City: ${city}\n📞 Phone: ${phone}\n\nCheck dashboard for details.`;
+            await sendWhatsAppMessage(adminPhone, adminMsg, adminApiKey);
+          }
+
+          // Notify Sellers via WhatsApp
+          for (const sellerId in sellerMap) {
+            const seller = cart.items.find(item => item.product.seller.id === Number(sellerId))?.product.seller;
+            if (seller?.phone && seller?.whatsappApiKey) {
+              const { items } = sellerMap[sellerId];
+              const sellerMsg = `🛍️ *New Order Notification*\nOrder #${newOrder.id} includes your items:\n${items.join("\n")}\n\nPlease check your seller dashboard.`;
+              await sendWhatsAppMessage(seller.phone, sellerMsg, seller.whatsappApiKey);
+            }
+          }
+        } catch (waErr) { console.error("Checkout WhatsApp Error:", waErr); }
 
       } catch (globalSideEffectErr) {
         console.error("Side Effect Fatal Error:", globalSideEffectErr);

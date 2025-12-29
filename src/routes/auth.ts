@@ -7,6 +7,7 @@ import prisma from "../prismaClient.js";
 import { authenticateToken } from "../middlewares/auth.js";
 import type { AuthRequest } from "../../types/AuthRequest.js";
 import createNotification from "../utils/notification-helper.js";
+import { sendWhatsAppMessage } from "../utils/whatsapp.js";
 
 // ✅ Nodemailer transporter
 const transporter = nodemailer.createTransport({
@@ -47,6 +48,8 @@ router.get("/me", authenticateToken, async (req: AuthRequest, res) => {
           id: true,
           name: true,
           email: true,
+          phone: true,
+          whatsappApiKey: true,
           createdAt: true,
         },
       });
@@ -100,6 +103,14 @@ router.post("/register", async (req, res) => {
       link: "/admin/users"
     });
 
+    // Notify Admin via WhatsApp
+    const adminPhone = process.env.WHATSAPP_ADMIN_PHONE;
+    const adminApiKey = process.env.WHATSAPP_ADMIN_API_KEY;
+    if (adminPhone && adminApiKey) {
+      const adminMsg = `👤 *New Buyer Registered*\n📛 Name: ${name}\n📧 Email: ${email}`;
+      await sendWhatsAppMessage(adminPhone, adminMsg, adminApiKey);
+    }
+
     res.json({ message: "User created", user });
   } catch (error: any) {
     console.error("User Register Error:", error);
@@ -143,6 +154,14 @@ router.post("/seller-register", async (req, res) => {
       message: `New Seller Application: ${name} (${email})`,
       link: "/admin/sellers"
     });
+
+    // Notify Admin via WhatsApp
+    const adminPhone = process.env.WHATSAPP_ADMIN_PHONE;
+    const adminApiKey = process.env.WHATSAPP_ADMIN_API_KEY;
+    if (adminPhone && adminApiKey) {
+      const adminMsg = `🆕 *New Seller Application*\n👤 Name: ${name}\n📧 Email: ${email}\n\nPlease review in the admin dashboard.`;
+      await sendWhatsAppMessage(adminPhone, adminMsg, adminApiKey);
+    }
 
     res.json({ message: "Seller registered, wait for admin approval", seller });
   } catch (error: any) {
@@ -256,16 +275,27 @@ router.put("/change-password", authenticateToken, async (req: AuthRequest, res) 
 // ------------------ Update Profile ------------------
 router.put("/profile", authenticateToken, async (req: AuthRequest, res) => {
   const userId = req.user!.id;
-  const { address, city, phone } = req.body;
+  const role = req.user!.role;
+  const { name, email, address, city, phone, whatsappApiKey } = req.body;
 
   try {
+    if (role === "SELLER") {
+      const seller = await prisma.seller.update({
+        where: { id: userId },
+        data: { name, email, phone, whatsappApiKey },
+      });
+      return res.json({ message: "Seller profile updated", user: { ...seller, role: "SELLER" } });
+    }
+
+    // Default to USER
     const user = await prisma.user.update({
       where: { id: userId },
-      data: { address, city, phone },
+      data: { name, email, address, city, phone },
       select: { id: true, name: true, email: true, address: true, city: true, phone: true }
     });
-    res.json({ message: "Profile updated", user });
+    res.json({ message: "User profile updated", user: { ...user, role: "USER" } });
   } catch (error) {
+    console.error("Profile Update Error:", error);
     res.status(500).json({ error: "Failed to update profile" });
   }
 });

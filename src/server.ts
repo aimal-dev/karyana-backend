@@ -15,6 +15,7 @@ import notificationRoutes from "./routes/notification.js";
 import testMailRouter from "./routes/testMail.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import settingsRoutes from "./routes/settings.js";
+import bulkRoutes from "./routes/bulk.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -85,6 +86,9 @@ app.use("/dashboard", dashboardRoutes);
 
 // PUBLIC SETTINGS
 app.use("/settings", settingsRoutes);
+
+// BULK OPERATIONS
+app.use("/bulk", bulkRoutes);
 
 // NOT USED: UPLOAD logic moved to Client-side Base64 for stability
 // app.use("/api/upload", uploadRoutes);
