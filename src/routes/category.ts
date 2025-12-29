@@ -40,26 +40,42 @@ router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req
 
 // DELETE a category
 router.delete("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const categoryId = Number(req.params.id);
-
-  await prisma.category.delete({ where: { id: categoryId } });
-  res.json({ message: "Category deleted" });
+  try {
+    const categoryId = Number(req.params.id);
+    await prisma.category.delete({ where: { id: categoryId } });
+    res.json({ message: "Category deleted" });
+  } catch (error: any) {
+    if (error.code === 'P2003') {
+        return res.status(400).json({ error: "Cannot delete category containing products. Please delete the products first." });
+    }
+    if (error.code === 'P2025') {
+        return res.status(404).json({ error: "Category not found" });
+    }
+    res.status(500).json({ error: "Delete failed", details: error.message });
+  }
 });
 
 // BULK DELETE categories
 router.post("/delete-many", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const { ids } = req.body;
-  if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "Invalid IDs" });
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: "Invalid IDs" });
 
-  const where: any = { id: { in: ids.map(Number) } };
-  
-  // If Seller, restrict to own categories (cannot delete global/admin ones)
-  if (req.user!.role !== "ADMIN") {
-    where.sellerId = req.user!.id;
+    const where: any = { id: { in: ids.map(Number) } };
+    
+    // If Seller, restrict to own categories (cannot delete global/admin ones)
+    if (req.user!.role !== "ADMIN") {
+      where.sellerId = req.user!.id;
+    }
+
+    const result = await prisma.category.deleteMany({ where });
+    res.json({ message: "Categories deleted", count: result.count });
+  } catch (error: any) {
+    if (error.code === 'P2003') {
+        return res.status(400).json({ error: "Cannot delete categories containing products. Please delete the products first." });
+    }
+    res.status(500).json({ error: "Delete failed", details: error.message });
   }
-
-  const result = await prisma.category.deleteMany({ where });
-  res.json({ message: "Categories deleted", count: result.count });
 });
 
 // -------------------- User Routes --------------------
