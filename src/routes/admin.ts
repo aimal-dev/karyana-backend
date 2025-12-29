@@ -20,17 +20,20 @@ router.put("/sellers/:id/approve", authenticateToken, verifyRoles("ADMIN"), asyn
 
   // 1. Send Email to Seller
   try {
+    const origin = req.get('origin') || process.env.FRONTEND_URL || "http://localhost:3000";
+    const frontendUrl = origin.replace(/\/$/, ""); 
+    
     await transporter.sendMail({
       from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
       to: seller.email,
       subject: "Your Seller Account has been Approved!",
-      text: `Congratulations ${seller.name}!\n\nYour seller account on Karyana Store has been approved by the admin. You can now log in and manage your products.\n\nLogin here: ${process.env.FRONTEND_URL}/seller-login`,
+      text: `Congratulations ${seller.name}!\n\nYour seller account on Karyana Store has been approved by the admin. You can now log in and manage your products.\n\nLogin here: ${frontendUrl}/seller-login`,
       html: `
         <div style="font-family: sans-serif; padding: 20px; color: #333;">
           <h2 style="color: #22c55e;">Account Approved!</h2>
           <p>Congratulations <b>${seller.name}</b>!</p>
           <p>Your seller account on Karyana Store has been approved by the admin. You can now log in and manage your products.</p>
-          <a href="${process.env.FRONTEND_URL}/seller-login" style="display: inline-block; padding: 10px 20px; background: #22c55e; color: white; text-decoration: none; border-radius: 5px;">Login to Dashboard</a>
+          <a href="${frontendUrl}/seller-login" style="display: inline-block; padding: 10px 20px; background: #22c55e; color: white; text-decoration: none; border-radius: 5px;">Login to Dashboard</a>
         </div>
       `
     });

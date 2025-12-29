@@ -305,7 +305,9 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     // Send Email
-    const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/reset-password?token=${token}&role=${role}`;
+    const origin = req.get('origin') || process.env.FRONTEND_URL || "http://localhost:3000";
+    const frontendUrl = origin.replace(/\/$/, ""); // Remove trailing slash if any
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}&role=${role}`;
     
     await transporter.sendMail({
       from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
