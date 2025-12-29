@@ -25,6 +25,13 @@ router.get("/products/export", authenticateToken, verifyRoles("SELLER", "ADMIN")
       include: { category: { select: { name: true } } }
     });
 
+    // Sanitize data for CSV (Handle Base64 images to prevent Excel crash)
+    const sanitizedProducts = products.map((p: any) => ({
+      ...p,
+      image: p.image && p.image.startsWith("data:image") ? "BASE64_IMAGE_KEEP_EXISTING" : p.image,
+      categoryName: p.category?.name
+    }));
+
     const fields = [
       { label: "ID", value: "id" },
       { label: "Title", value: "title" },
@@ -32,7 +39,7 @@ router.get("/products/export", authenticateToken, verifyRoles("SELLER", "ADMIN")
       { label: "Price", value: "price" },
       { label: "Stock", value: "stock" },
       { label: "Image URL", value: "image" },
-      { label: "Category", value: "category.name" },
+      { label: "Category", value: "categoryName" },
       { label: "Featured", value: "isFeatured" },
       { label: "Trending", value: "isTrending" },
       { label: "On Sale", value: "isOnSale" },
@@ -41,7 +48,7 @@ router.get("/products/export", authenticateToken, verifyRoles("SELLER", "ADMIN")
     ];
 
     const json2csv = new Parser({ fields });
-    const csvData = json2csv.parse(products);
+    const csvData = json2csv.parse(sanitizedProducts);
 
     res.header("Content-Type", "text/csv");
     res.attachment(`products-export-${Date.now()}.csv`);
@@ -51,7 +58,7 @@ router.get("/products/export", authenticateToken, verifyRoles("SELLER", "ADMIN")
   }
 });
 
-// ✅ Import Products from CSV
+// ✅ Import Products from CSV (Supports Update & Create)
 router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"), upload.single("file"), async (req: AuthRequest, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
@@ -64,7 +71,9 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
     .on("data", (data) => results.push(data))
     .on("end", async () => {
       try {
-        const createdProducts = [];
+        let createdCount = 0;
+        let updatedCount = 0;
+        
         for (const row of results) {
           // Find or create category
           let categoryId = 1;
@@ -92,27 +101,61 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
           const rawTags = row.Tags || row.tags;
           const tags = rawTags ? String(rawTags).split(/[,|]/).map((t: string) => t.trim().toLowerCase()).filter(Boolean) : [];
 
-          const product = await prisma.product.create({
-            data: {
-              title: row.Title,
-              description: row.Description,
-              price: parseFloat(row.Price) || 0,
-              stock: parseInt(row.Stock) || 0,
-              image: row["Image URL"] || row.ImageURL || "",
-              sellerId: row.SellerID ? Number(row.SellerID) : sellerId,
-              categoryId,
-              isFeatured: row.Featured === "true",
-              isTrending: row.Trending === "true",
-              isOnSale: row["On Sale"] === "true",
-              oldPrice: row["Old Price"] ? parseFloat(row["Old Price"]) : null,
-              tags
+          // Image handling: Verify if we should update it
+          const imageUrl = row["Image URL"] || row.ImageURL || row.image;
+          const shouldUpdateImage = imageUrl && imageUrl !== "BASE64_IMAGE_KEEP_EXISTING";
+
+          const productData: any = {
+             title: row.Title || row.title,
+             description: row.Description || row.description,
+             price: parseFloat(row.Price || row.price) || 0,
+             stock: parseInt(row.Stock || row.stock) || 0,
+             categoryId,
+             isFeatured: (row.Featured || row.featured) === "true",
+             isTrending: (row.Trending || row.trending) === "true",
+             isOnSale: (row["On Sale"] || row.onSale) === "true",
+             oldPrice: (row["Old Price"] || row.oldPrice) ? parseFloat(row["Old Price"] || row.oldPrice) : null,
+             tags
+          };
+
+          if (shouldUpdateImage) {
+            productData.image = imageUrl;
+          }
+
+          const id = row.ID || row.id;
+
+          if (id) {
+            // Update existing
+            const existing = await prisma.product.findUnique({ where: { id: Number(id) } });
+            if (existing) {
+              // Only allow update if Admin or Owner
+              if (req.user!.role === "ADMIN" || existing.sellerId === sellerId) {
+                 await prisma.product.update({
+                   where: { id: Number(id) },
+                   data: productData
+                 });
+                 updatedCount++;
+              }
+            } else {
+               // ID provided but not found -> Create new? Or skip? 
+               // usually safe to create as new if ID not found is rare, but usually ID means update.
+               // Let's treat as create new (ignoring ID) or create with new ID.
+               const p = await prisma.product.create({
+                 data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+               });
+               createdCount++;
             }
-          });
-          createdProducts.push(product);
+          } else {
+            // Create new
+            const p = await prisma.product.create({
+              data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+            });
+            createdCount++;
+          }
         }
-        res.json({ message: `${createdProducts.length} products imported successfully`, count: createdProducts.length });
+        res.json({ message: `Processed successfully: ${createdCount} created, ${updatedCount} updated.` });
       } catch (error: any) {
-        res.status(500).json({ error: "Import failed during database sync", details: error.message });
+        res.status(500).json({ error: "Import failed", details: error.message });
       }
     });
 });
