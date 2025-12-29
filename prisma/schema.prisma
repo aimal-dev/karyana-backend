@@ -19,6 +19,9 @@ model User {
   email      String      @unique
   password   String
 
+  resetToken       String?    // For password reset
+  resetTokenExpiry DateTime?  // Token expiration time
+
   orders     Order[]
   reviews    Review[]
   
@@ -49,6 +52,9 @@ model Seller {
   name       String
   email      String    @unique
   password   String
+
+  resetToken       String?    // For password reset
+  resetTokenExpiry DateTime?  // Token expiration time
 
   products   Product[]
   categories Category[]

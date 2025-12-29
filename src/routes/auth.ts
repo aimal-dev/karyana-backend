@@ -1,10 +1,20 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
 import prisma from "../prismaClient.js";
 import { authenticateToken } from "../middlewares/auth.js";
 import type { AuthRequest } from "../../types/AuthRequest.js";
 import createNotification from "../utils/notification-helper.js";
+
+// ✅ Nodemailer transporter
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: Number(process.env.EMAIL_PORT),
+  secure: false,
+  auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+});
 
 const router = express.Router();
 
@@ -257,6 +267,110 @@ router.put("/profile", authenticateToken, async (req: AuthRequest, res) => {
     res.json({ message: "Profile updated", user });
   } catch (error) {
     res.status(500).json({ error: "Failed to update profile" });
+  }
+});
+
+// ------------------ Forgot Password ------------------
+router.post("/forgot-password", async (req, res) => {
+  const { email, role } = req.body; // role: USER or SELLER
+  if (!email || !role) return res.status(400).json({ error: "Email and role are required" });
+
+  try {
+    let target;
+    if (role === "SELLER") {
+      target = await prisma.seller.findUnique({ where: { email } });
+    } else {
+      target = await prisma.user.findUnique({ where: { email } });
+    }
+
+    if (!target) {
+      return res.status(404).json({ error: "User with this email not found" });
+    }
+
+    // Generate Token
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiry = new Date(Date.now() + 3600000); // 1 hour valid
+
+    // Update DB
+    if (role === "SELLER") {
+      await prisma.seller.update({
+        where: { id: target.id },
+        data: { resetToken: token, resetTokenExpiry: expiry }
+      });
+    } else {
+      await prisma.user.update({
+        where: { id: target.id },
+        data: { resetToken: token, resetTokenExpiry: expiry }
+      });
+    }
+
+    // Send Email
+    const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/reset-password?token=${token}&role=${role}`;
+    
+    await transporter.sendMail({
+      from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: "Password Reset Request",
+      html: `
+        <div style="font-family: sans-serif; padding: 20px;">
+          <h2>Password Reset Request</h2>
+          <p>You requested a password reset. Please click the button below to reset your password:</p>
+          <a href="${resetUrl}" style="background: #80B500; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; margin: 20px 0;">Reset Password</a>
+          <p>This link will expire in 1 hour.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+        </div>
+      `,
+    });
+
+    res.json({ message: "Password reset link sent to your email" });
+
+  } catch (error: any) {
+    console.error("Forgot Password Error:", error);
+    res.status(500).json({ error: "Failed to process forgot password" });
+  }
+});
+
+// ------------------ Reset Password ------------------
+router.post("/reset-password", async (req, res) => {
+  const { token, role, newPassword } = req.body;
+  if (!token || !role || !newPassword) return res.status(400).json({ error: "All fields are required" });
+
+  try {
+    let target;
+    if (role === "SELLER") {
+      target = await prisma.seller.findFirst({
+        where: { resetToken: token, resetTokenExpiry: { gte: new Date() } }
+      });
+    } else {
+      target = await prisma.user.findFirst({
+        where: { resetToken: token, resetTokenExpiry: { gte: new Date() } }
+      });
+    }
+
+    if (!target) {
+      return res.status(400).json({ error: "Invalid or expired token" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update DB and clear token
+    if (role === "SELLER") {
+      await prisma.seller.update({
+        where: { id: target.id },
+        data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
+      });
+    } else {
+      await prisma.user.update({
+        where: { id: target.id },
+        data: { password: hashedPassword, resetToken: null, resetTokenExpiry: null }
+      });
+    }
+
+    res.json({ message: "Password reset successful. You can now login." });
+
+  } catch (error: any) {
+    console.error("Reset Password Error:", error);
+    res.status(500).json({ error: "Failed to reset password" });
   }
 });
 
