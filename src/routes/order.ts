@@ -222,7 +222,71 @@ router.post("/checkout", authenticateToken, verifyRoles("USER"), async (req: Aut
 
     console.log("Order created successfully:", newOrder.id);
 
-    // ✅ Note: Emails and notifications are temporarily disabled to isolate the 500 error
+    // ✅ SIDE EFFECTS (NON-BLOCKING)
+    // Wrap everything in a background block so it doesn't crash checkout
+    (async () => {
+      try {
+        // 1. Seller Mapping for specific notifications
+        const sellerMap: Record<number, { email: string; items: string[] }> = {};
+        for (const item of cart.items) {
+          const sellerId = item.product.seller.id;
+          if (!sellerMap[sellerId]) {
+            sellerMap[sellerId] = { email: item.product.seller.email, items: [] };
+          }
+          sellerMap[sellerId].items.push(`${item.product.title} x${item.qty}`);
+        }
+
+        // 2. Notifications
+        try {
+          // Notify User
+          await createNotification({
+            userId,
+            message: `Your order #${newOrder.id} has been placed successfully.`,
+            link: `/orders/${newOrder.id}`,
+          });
+          // Notify Sellers
+          for (const sellerId in sellerMap) {
+            await createNotification({
+              sellerId: Number(sellerId),
+              message: `New order #${newOrder.id} includes your products.`,
+              link: `/seller/orders/${newOrder.id}`,
+            });
+          }
+          // Notify Admin
+          await createNotification({
+            role: "ADMIN",
+            message: `New Order #${newOrder.id} placed by ${req.user!.name}. Total: Rs ${total.toLocaleString()}`,
+            link: `/admin/orders/${newOrder.id}`,
+          });
+        } catch (notifErr) { console.error("Checkout Notif Error:", notifErr); }
+
+        // 3. Emails
+        try {
+          // Seller Emails
+          for (const sellerId in sellerMap) {
+            const { email, items } = sellerMap[sellerId];
+            await transporter.sendMail({
+              from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
+              to: email,
+              subject: `New Order Received: #${newOrder.id}`,
+              text: `New order received for items: ${items.join(", ")}. Total: Rs ${total.toLocaleString()}`,
+            }).catch(e => console.error("Seller Email Error:", e));
+          }
+          // Admin Email
+          if (adminEmails.length) {
+            await transporter.sendMail({
+              from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
+              to: adminEmails,
+              subject: `New Order Placed: #${newOrder.id}`,
+              text: `New order placed by user ID ${userId}. Total: Rs ${total.toLocaleString()}`,
+            }).catch(e => console.error("Admin Email Error:", e));
+          }
+        } catch (emailErr) { console.error("Checkout Email Error:", emailErr); }
+
+      } catch (globalSideEffectErr) {
+        console.error("Side Effect Fatal Error:", globalSideEffectErr);
+      }
+    })();
     
     return res.json({
       success: true,
@@ -357,50 +421,75 @@ router.put(
   authenticateToken,
   verifyRoles("SELLER", "ADMIN"),
   async (req: AuthRequest, res) => {
-    const orderId = Number(req.params.id);
-    const { status } = req.body;
+    try {
+      const orderId = Number(req.params.id);
+      const { status } = req.body;
 
-    const updated = await prisma.order.update({
-      where: { id: orderId },
-      data: { status },
-      include: { user: true, payment: true },
-    });
+      if (!status) {
+        return res.status(400).json({ error: "Status is required" });
+      }
 
-    // If order is delivered, automatically mark payment as success
-    if (status === "DELIVERED" && updated.payment) {
-      await prisma.payment.update({
-        where: { id: updated.payment.id },
-        data: { status: "SUCCESS" }
+      // 1. Update Order Status
+      const updated = await prisma.order.update({
+        where: { id: orderId },
+        data: { status },
+        include: { user: true, payment: true },
+      });
+
+      // 2. Sync Payment (if delivered)
+      if (status === "DELIVERED" && updated.payment) {
+        await prisma.payment.update({
+          where: { id: updated.payment.id },
+          data: { status: "SUCCESS" }
+        });
+      }
+
+      // 3. Create Tracking Entry
+      await prisma.trackingHistory.create({
+        data: {
+          orderId: updated.id,
+          status,
+          message: `Order moved to ${status}`,
+        },
+      });
+
+      // 4. Send Email (Non-blocking)
+      try {
+        await transporter.sendMail({
+          from: `"Karyana Store" <${process.env.EMAIL_USER}>`,
+          to: updated.user.email,
+          subject: `Order #${updated.id} Status Updated`,
+          text: `Your order status has been updated to: ${status}.`,
+        });
+      } catch (mailError) {
+        console.error("Mail Send Error (Status Update):", mailError);
+        // We don't return error here because DB is already updated
+      }
+
+      // 5. Create Notification (Non-blocking)
+      try {
+        await createNotification({
+          userId: updated.user.id,
+          message: `Your order #${updated.id} status updated to: ${status}.`,
+          link: `/orders/${updated.id}`,
+        });
+      } catch (notifError) {
+        console.error("Notification Error (Status Update):", notifError);
+      }
+
+      return res.json({
+        success: true,
+        message: "Order status updated successfully",
+        updated,
+      });
+
+    } catch (error: any) {
+      console.error("FATAL STATUS UPDATE ERROR:", error);
+      return res.status(500).json({
+        error: "Failed to update status",
+        details: error.message
       });
     }
-
-    await prisma.trackingHistory.create({
-      data: {
-        orderId: updated.id,
-        status,
-        message: `Order moved to ${status}`,
-      },
-    });
-
-    const info = await transporter.sendMail({
-      from: `"My Store" <${process.env.EMAIL_USER}>`,
-      to: updated.user.email,
-      subject: `Order #${updated.id} Status Updated`,
-      text: `Your order status has been updated to: ${status}.`,
-    });
-
-    // console.log("status mail:", info.accepted, info.rejected);
-
-    await createNotification({
-      userId: updated.user.id,
-      message: `Your order #${updated.id} status updated to: ${status}.`,
-      link: `/orders/${updated.id}`,
-    });
-
-    res.json({
-      message: "Order status updated, email & notification sent",
-      updated,
-    });
   },
 );
 
