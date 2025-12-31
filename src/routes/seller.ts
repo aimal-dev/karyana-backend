@@ -12,44 +12,7 @@ router.get("/profile", authenticateToken, verifyRoles("SELLER", "ADMIN"), async 
   res.json({ seller });
 });
 
-// CREATE new product
-router.post("/products", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const { title, description, price, stock, image, categoryId } = req.body;
- const sellerId = Number(req.user!.id);
-
-  const product = await prisma.product.create({
-    data: { title, description, price: Number(price), stock: Number(stock) || 0, image, sellerId, categoryId: Number(categoryId) },
-  });
-
-  res.json({ message: "Product created", product });
-});
-
-// GET all seller products
-router.get("/products", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const sellerId = Number(req.user!.id);
-  const products = await prisma.product.findMany({ where: { sellerId } });
-  res.json({ products });
-});
-
-// UPDATE product
-router.put("/products/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const productId = Number(req.params.id);
-  const { title, description, price, stock, image, categoryId } = req.body;
-
-  const updated = await prisma.product.update({
-    where: { id: productId },
-    data: { title, description, price: Number(price), stock: Number(stock) || 0, image, categoryId: Number(categoryId) },
-  });
-
-  res.json({ message: "Product updated", updated });
-});
-
-// DELETE product
-router.delete("/products/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
-  const productId = Number(req.params.id);
-
-  await prisma.product.delete({ where: { id: productId } });
-  res.json({ message: "Product deleted" });
-});
+// Product management is now handled centrally in src/routes/product.ts
+// Use /products endpoint for all product operations.
 
 export default router;

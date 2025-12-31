@@ -1,4 +1,7 @@
 import express from "express";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import { authenticateToken, verifyRoles } from "../middlewares/auth.js";
 import prisma from "../prismaClient.js";
 import type { AuthRequest } from "../../types/AuthRequest.js";
@@ -80,48 +83,71 @@ router.put("/:id", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req
   const productId = Number(req.params.id);
   const { title, description, price, stock, image, categoryId, images, tags, variants } = req.body;
 
-  // Re-sync images
-  await prisma.productImage.deleteMany({ where: { productId } });
-  
-  // Re-sync variants (simple replace strategy)
-  await prisma.productVariant.deleteMany({ where: { productId } });
+  try {
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) return res.status(404).json({ error: "Product not found" });
 
-  let tagsList: string[] = [];
-  if (Array.isArray(tags)) {
-    tagsList = tags.map((t: string) => t.toLowerCase().trim());
-  } else if (typeof tags === "string") {
-    tagsList = tags.split(",").map((t: string) => t.toLowerCase().trim()).filter(Boolean);
+    if (req.user!.role !== "ADMIN" && product.sellerId !== req.user!.id) {
+      return res.status(403).json({ error: "Access denied. You don't own this product." });
+    }
+
+    console.log("---------------- BACKEND DEBUG ----------------");
+    console.log(" productId:", productId);
+    console.log(" image received length:", image?.length || 0);
+    console.log(" image received start:", image?.substring(0, 100));
+    console.log(" title:", title);
+    console.log("-----------------------------------------------");
+
+    const tagsList = Array.isArray(tags) 
+      ? tags.map((t: any) => String(t).toLowerCase().trim()) 
+      : (typeof tags === "string" ? tags.split(",").map(t => t.toLowerCase().trim()).filter(Boolean) : []);
+
+    let finalSellerId = Number(product.sellerId); 
+    if (req.user!.role === "ADMIN" && req.body.sellerId) {
+      finalSellerId = Number(req.body.sellerId);
+    } else if (req.user!.role === "SELLER") {
+      finalSellerId = Number(req.user!.id);
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+        await tx.productImage.deleteMany({ where: { productId } });
+        await tx.productVariant.deleteMany({ where: { productId } });
+
+        return await tx.product.update({
+            where: { id: productId },
+            data: {
+                title,
+                description,
+                price: Number(price),
+                stock: Number(stock) || 0,
+                image, 
+                sellerId: finalSellerId,
+                categoryId: Number(categoryId),
+                isFeatured: Boolean(req.body.isFeatured),
+                isTrending: Boolean(req.body.isTrending),
+                isOnSale: Boolean(req.body.isOnSale),
+                oldPrice: req.body.oldPrice ? Number(req.body.oldPrice) : null,
+                tags: tagsList,
+                images: {
+                    create: (images || []).map((url: string) => ({ url }))
+                },
+                variants: {
+                    create: (variants || []).map((v: any) => ({
+                        name: v.name,
+                        price: Number(v.price),
+                        stock: Number(v.stock) || 0
+                    }))
+                }
+            },
+            include: { images: true, variants: true }
+        });
+    });
+
+    res.json({ message: "Product updated", updated: result });
+  } catch (error: any) {
+    console.error("[BACKEND UPDATE ERROR]:", error);
+    res.status(500).json({ error: "Update failed", details: error.message });
   }
-
-  const updated = await prisma.product.update({
-    where: { id: productId },
-    data: {
-      title,
-      description,
-      price: Number(price),
-      stock: Number(stock) || 0,
-      sellerId: (req.user!.role === "ADMIN" && req.body.sellerId) ? Number(req.body.sellerId) : req.user!.id,
-      categoryId: Number(categoryId),
-      isFeatured: Boolean(req.body.isFeatured),
-      isTrending: Boolean(req.body.isTrending),
-      isOnSale: Boolean(req.body.isOnSale),
-      oldPrice: req.body.oldPrice ? Number(req.body.oldPrice) : null,
-      tags: tagsList,
-      images: {
-        create: (images || []).map((url: string) => ({ url }))
-      },
-      variants: {
-        create: (variants || []).map((v: any) => ({
-           name: v.name,
-           price: Number(v.price),
-           stock: Number(v.stock) || 0
-        }))
-      }
-    },
-    include: { images: true, variants: true }
-  });
-
-  res.json({ message: "Product updated", updated });
 });
 
 // DELETE product
@@ -211,6 +237,8 @@ router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: A
     take: Number(limit),
     include: {
       category: true,
+      images: true,
+      variants: true,
     },
     orderBy: { createdAt: "desc" },
   });

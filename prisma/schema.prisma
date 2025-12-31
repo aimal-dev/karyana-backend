@@ -76,6 +76,7 @@ model Category {
   id        Int      @id @default(autoincrement())
   name      String
   image     String?
+  isStarred Boolean  @default(false)
 
   seller    Seller?  @relation(fields: [sellerId], references: [id])
   sellerId  Int?
