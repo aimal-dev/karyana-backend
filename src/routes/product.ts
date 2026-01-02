@@ -90,8 +90,7 @@ router.post(
           create: (variants || []).map((v: any) => ({
             name: v.name,
             price: Number(v.price),
-            stock: Number(v.stock) || 0,
-            image: v.image
+            stock: Number(v.stock) || 0
           })),
         },
       },
@@ -182,8 +181,7 @@ router.put(
               create: (variants || []).map((v: any) => ({
                 name: v.name,
                 price: Number(v.price),
-                stock: Number(v.stock) || 0,
-                image: v.image
+                stock: Number(v.stock) || 0
               })),
             },
           },

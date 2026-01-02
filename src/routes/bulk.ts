@@ -77,7 +77,7 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
         for (const row of results) {
           // Find or create category
           let categoryId = 1;
-          const catName = row.Category || row.category || row.CategoryName || row.categoryName;
+          const catName = row.Category || row.category;
           
           if (catName) {
             const safeName = String(catName).trim();
@@ -102,12 +102,12 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
           const tags = rawTags ? String(rawTags).split(/[,|]/).map((t: string) => t.trim().toLowerCase()).filter(Boolean) : [];
 
           // Image handling
-          const imageUrl = row["Image URL"] || row.ImageURL || row.image || row.Image;
+          const imageUrl = row["Image URL"] || row.ImageURL || row.image;
           const shouldUpdateImage = imageUrl && imageUrl !== "BASE64_IMAGE_KEEP_EXISTING";
 
           const productData: any = {
-             title: row.Title || row.title || "Untitled Product",
-             description: row.Description || row.description || "",
+             title: row.Title || row.title,
+             description: row.Description || row.description,
              price: parseFloat(row.Price || row.price) || 0,
              stock: parseInt(row.Stock || row.stock) || 0,
              categoryId,
@@ -115,7 +115,8 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
              isTrending: (row.Trending || row.trending) === "true",
              isOnSale: (row["On Sale"] || row.onSale) === "true",
              oldPrice: (row["Old Price"] || row.oldPrice) ? parseFloat(row["Old Price"] || row.oldPrice) : null,
-             tags
+             tags,
+             sellerId // Ensure current user is the owner
           };
 
           if (shouldUpdateImage) {
@@ -134,14 +135,13 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
               updatedCount++;
             } else {
               await prisma.product.create({
-                data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+                data: { ...productData, image: productData.image || "" }
               });
               createdCount++;
             }
           } else {
-            // No ID provided, create new
             await prisma.product.create({
-              data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+              data: { ...productData, image: productData.image || "" }
             });
             createdCount++;
           }
@@ -220,7 +220,7 @@ router.post("/categories/import", authenticateToken, verifyRoles("SELLER", "ADMI
         }
         res.json({ message: `Processed Categories: ${createdCount} created, ${updatedCount} updated.` });
       } catch (error: any) {
-        res.status(500).json({ error: "Import failed", details: error.message });
+        res.status(500).json({ error: "Import failed during database sync", details: error.message });
       }
     });
 });
