@@ -74,8 +74,18 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
         let createdCount = 0;
         let updatedCount = 0;
         
+        console.log(`Starting import: ${results.length} rows found.`);
+        if (results.length > 0) {
+           console.log("CSV Headers detected:", Object.keys(results[0]));
+        }
         for (const row of results) {
           try {
+            const title = row.Title || row.title;
+            if (!title) {
+               console.log("Skipping row: Title is missing", row);
+               continue;
+            }
+
             // Find or create category
             let categoryId = 1;
             const catName = row.Category || row.category;
@@ -107,7 +117,7 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
             const shouldUpdateImage = imageUrl && imageUrl !== "BASE64_IMAGE_KEEP_EXISTING";
 
             const productData: any = {
-               title: row.Title || row.title,
+               title: title,
                description: row.Description || row.description,
                price: parseFloat(row.Price || row.price) || 0,
                stock: parseInt(row.Stock || row.stock) || 0,
@@ -191,11 +201,11 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
                   createdCount++;
               }
             }
-          } catch (rowError) {
-            console.error("Error processing row:", rowError);
-            // Continue to next row
+          } catch (rowError: any) {
+            console.error("Error processing row:", rowError.message);
           }
         }
+        console.log(`Import finished: ${createdCount} created, ${updatedCount} updated.`);
         res.json({ message: `Processed successfully: ${createdCount} created, ${updatedCount} updated.` });
       } catch (error: any) {
         res.status(500).json({ error: "Import failed", details: error.message });
@@ -211,12 +221,6 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
 router.get("/categories/export", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   try {
     const sellerId = req.user!.id;
-    // Allow seeing own categories + global categories (sellerId: null)
-    // If Admin, they see everything anyway because they see IDs and Nulls? 
-    // Actually best to just open it up:
-    // Admin -> see ALL.
-    // Seller -> see Own + Global.
-    
     let where: any = {};
     if (req.user!.role !== "ADMIN") {
         where = {
@@ -226,7 +230,6 @@ router.get("/categories/export", authenticateToken, verifyRoles("SELLER", "ADMIN
             ]
         };
     }
-    // If ADMIN, where remains {} -> Select All
 
     const categories = await prisma.category.findMany({ where });
 
