@@ -91,6 +91,7 @@ router.post(
             name: v.name,
             price: Number(v.price),
             stock: Number(v.stock) || 0,
+            image: v.image
           })),
         },
       },
@@ -182,6 +183,7 @@ router.put(
                 name: v.name,
                 price: Number(v.price),
                 stock: Number(v.stock) || 0,
+                image: v.image
               })),
             },
           },
