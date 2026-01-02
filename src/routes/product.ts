@@ -38,9 +38,9 @@ router.post(
       variants,
     } = req.body;
 
-    let sellerId = req.user!.id;
-    if (req.user!.role === "ADMIN" && req.body.sellerId) {
-      sellerId = Number(req.body.sellerId);
+    let sellerId: number | null = req.user!.id;
+    if (req.user!.role === "ADMIN") {
+      sellerId = req.body.sellerId ? Number(req.body.sellerId) : null;
     }
 
     // Check for Duplicate
@@ -53,7 +53,7 @@ router.post(
 
     if (existing) {
       return res.status(409).json({
-        error: "Product with this name already exists.",
+        error: "Product already added! Search your inventory.",
         existingId: existing.id,
       });
     }
@@ -90,7 +90,8 @@ router.post(
           create: (variants || []).map((v: any) => ({
             name: v.name,
             price: Number(v.price),
-            stock: Number(v.stock) || 0
+            stock: Number(v.stock) || 0,
+            image: v.image || null
           })),
         },
       },
@@ -181,7 +182,8 @@ router.put(
               create: (variants || []).map((v: any) => ({
                 name: v.name,
                 price: Number(v.price),
-                stock: Number(v.stock) || 0
+                stock: Number(v.stock) || 0,
+                image: v.image || null
               })),
             },
           },
@@ -298,6 +300,16 @@ router.get(
       search,
     } = req.query;
     const where: any = {};
+    
+    // Support Shared Visibility: 
+    // Admin sees ALL. 
+    // Seller sees OWN + GLOBAL (sellerId: null).
+    if (req.user!.role === "SELLER") {
+      where.OR = [
+        { sellerId: req.user!.id },
+        { sellerId: null }
+      ];
+    }
 
     if (categoryId) where.categoryId = Number(categoryId);
     if (minPrice || maxPrice) where.price = {};

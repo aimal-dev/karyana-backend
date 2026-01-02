@@ -8,7 +8,21 @@ const router = express.Router();
 // GET all categories for the seller
 router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: AuthRequest, res) => {
   const sellerId = req.user!.id;
-  const where = req.user!.role === "ADMIN" ? {} : { sellerId };
+  
+  // LOGGING FOR DEBUGGING
+  console.log(`[CATEGORY GET] User Role: ${req.user!.role}, ID: ${sellerId}`);
+
+  const where = req.user!.role === "ADMIN" 
+    ? {} 
+    : { 
+        OR: [
+          { sellerId: Number(sellerId) }, // Ensure number type
+          { sellerId: null }
+        ]
+      };
+      
+  console.log(`[CATEGORY GET] Query Where:`, JSON.stringify(where));
+
   const categories = await prisma.category.findMany({ 
     where, 
     include: { seller: { select: { name: true } } },
@@ -17,6 +31,8 @@ router.get("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: A
       { name: "asc" }
     ]
   });
+  
+  console.log(`[CATEGORY GET] Found ${categories.length} categories`);
   res.json({ categories });
 });
 
@@ -25,11 +41,24 @@ router.post("/", authenticateToken, verifyRoles("SELLER", "ADMIN"), async (req: 
   const { name, image, isStarred } = req.body;
   const sellerId = req.user!.role === "ADMIN" ? null : req.user!.id;
 
+  // 1. DUPLICATE CHECK
+  const existing = await prisma.category.findFirst({
+    where: {
+      name: { equals: name, mode: "insensitive" }
+    }
+  });
+
+  if (existing) {
+    return res.status(409).json({ 
+      error: "Category already allowed/added! Check the list." 
+    });
+  }
+
   const category = await prisma.category.create({
     data: { 
       name, 
       image, 
-      sellerId,
+      sellerId: sellerId ? Number(sellerId) : null,
       isStarred: Boolean(isStarred)
     },
   });

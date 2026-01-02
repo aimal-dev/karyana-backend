@@ -197,37 +197,14 @@ router.post("/admin-login", async (req, res) => {
   if (!email || !password) return res.status(400).json({ message: "Email and password required" });
 
   const ADMIN_EMAIL = "admin@example.com";
-  const INITIAL_PASSWORD = "admin123";
+  const ADMIN_PASSWORD = "admin123";
 
-  // 1. Check if admin exists in DB
-  // @ts-ignore
-  let admin = await prisma.user.findFirst({ where: { role: "ADMIN" } });
-
-  if (!admin) {
-    // If no admin in DB, check against initial hardcoded credentials
-    if (email === ADMIN_EMAIL && password === INITIAL_PASSWORD) {
-      // Create first admin in DB so they can change password later
-      const hashedPassword = await bcrypt.hash(INITIAL_PASSWORD, 10);
-      admin = await prisma.user.create({
-        data: { 
-          name: "System Admin", 
-          email: ADMIN_EMAIL, 
-          password: hashedPassword,
-          // @ts-ignore
-          role: "ADMIN"
-        }
-      });
-    } else {
-      return res.status(401).json({ message: "Invalid admin credentials" });
-    }
+  if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+    const token = jwt.sign({ id: 0, role: "ADMIN", name: "System Admin" }, process.env.JWT_SECRET || "secretkey", { expiresIn: "7d" });
+    res.json({ message: "Admin login successful", token });
   } else {
-    // Admin exists in DB, compare passwords
-    const match = await bcrypt.compare(password, admin.password);
-    if (!match) return res.status(401).json({ error: "Incorrect admin password" });
+    return res.status(401).json({ message: "Invalid admin credentials" });
   }
-
-  const token = jwt.sign({ id: admin.id, role: "ADMIN", name: admin.name }, process.env.JWT_SECRET || "secretkey", { expiresIn: "7d" });
-  res.json({ message: "Admin login successful", token });
 });
 
 // ------------------ Change Password ------------------
