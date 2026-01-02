@@ -75,113 +75,125 @@ router.post("/products/import", authenticateToken, verifyRoles("SELLER", "ADMIN"
         let updatedCount = 0;
         
         for (const row of results) {
-          // Find or create category
-          let categoryId = 1;
-          const catName = row.Category || row.category;
-          
-          if (catName) {
-            const safeName = String(catName).trim();
-            const cat = await prisma.category.findFirst({
-              where: { name: { equals: safeName, mode: "insensitive" } }
-            });
-            if (cat) {
-              categoryId = cat.id;
+          try {
+            // Find or create category
+            let categoryId = 1;
+            const catName = row.Category || row.category;
+            
+            if (catName) {
+              const safeName = String(catName).trim();
+              const cat = await prisma.category.findFirst({
+                where: { name: { equals: safeName, mode: "insensitive" } }
+              });
+              if (cat) {
+                categoryId = cat.id;
+              } else {
+                const newCat = await prisma.category.create({
+                  data: {
+                    name: safeName,
+                    image: "",
+                    sellerId: req.user!.role === "ADMIN" ? null : sellerId
+                  }
+                });
+                categoryId = newCat.id;
+              }
+            }
+
+            const rawTags = row.Tags || row.tags;
+            const tags = rawTags ? String(rawTags).split(/[,|]/).map((t: string) => t.trim().toLowerCase()).filter(Boolean) : [];
+
+            // Image handling: Verify if we should update it
+            const imageUrl = row["Image URL"] || row.ImageURL || row.image;
+            const shouldUpdateImage = imageUrl && imageUrl !== "BASE64_IMAGE_KEEP_EXISTING";
+
+            const productData: any = {
+               title: row.Title || row.title,
+               description: row.Description || row.description,
+               price: parseFloat(row.Price || row.price) || 0,
+               stock: parseInt(row.Stock || row.stock) || 0,
+               categoryId,
+               isFeatured: (row.Featured || row.featured) === "true",
+               isTrending: (row.Trending || row.trending) === "true",
+               isOnSale: (row["On Sale"] || row.onSale) === "true",
+               oldPrice: (row["Old Price"] || row.oldPrice) ? parseFloat(row["Old Price"] || row.oldPrice) : null,
+               tags
+            };
+
+            if (shouldUpdateImage) {
+              productData.image = imageUrl;
+            }
+
+            // Determine Target Seller ID
+            let targetSellerId = sellerId;
+            const providedSellerId = row.SellerID || row.sellerId;
+            
+            if (req.user!.role === "ADMIN" && providedSellerId) {
+               const checkUser = await prisma.user.findUnique({ where: { id: Number(providedSellerId) } });
+               if (checkUser) {
+                  targetSellerId = Number(providedSellerId);
+               }
+            }
+
+            const id = row.ID || row.id;
+
+            if (id) {
+              // Update existing by ID
+              const existing = await prisma.product.findUnique({ where: { id: Number(id) } });
+              if (existing) {
+                if (req.user!.role === "ADMIN" || existing.sellerId === sellerId) {
+                   await prisma.product.update({
+                     where: { id: Number(id) },
+                     data: productData
+                   });
+                   updatedCount++;
+                }
+              } else {
+                 // ID provided but not found -> Check Name before creating
+                 const duplicate = await prisma.product.findFirst({
+                   where: {
+                     title: { equals: productData.title, mode: "insensitive" },
+                     sellerId: targetSellerId
+                   }
+                 });
+
+                 if (duplicate) {
+                    await prisma.product.update({
+                      where: { id: duplicate.id },
+                      data: productData
+                    });
+                    updatedCount++;
+                 } else {
+                    await prisma.product.create({
+                      data: { ...productData, sellerId: targetSellerId, image: productData.image || "" }
+                    });
+                    createdCount++;
+                 }
+              }
             } else {
-              const newCat = await prisma.category.create({
-                data: {
-                  name: safeName,
-                  image: "",
-                  sellerId: req.user!.role === "ADMIN" ? null : sellerId
+              // No ID -> Check Name for Duplicates first
+              const duplicate = await prisma.product.findFirst({
+                where: {
+                  title: { equals: productData.title, mode: "insensitive" },
+                  sellerId: targetSellerId
                 }
               });
-              categoryId = newCat.id;
-            }
-          }
 
-          const rawTags = row.Tags || row.tags;
-          const tags = rawTags ? String(rawTags).split(/[,|]/).map((t: string) => t.trim().toLowerCase()).filter(Boolean) : [];
-
-          // Image handling: Verify if we should update it
-          const imageUrl = row["Image URL"] || row.ImageURL || row.image;
-          const shouldUpdateImage = imageUrl && imageUrl !== "BASE64_IMAGE_KEEP_EXISTING";
-
-          const productData: any = {
-             title: row.Title || row.title,
-             description: row.Description || row.description,
-             price: parseFloat(row.Price || row.price) || 0,
-             stock: parseInt(row.Stock || row.stock) || 0,
-             categoryId,
-             isFeatured: (row.Featured || row.featured) === "true",
-             isTrending: (row.Trending || row.trending) === "true",
-             isOnSale: (row["On Sale"] || row.onSale) === "true",
-             oldPrice: (row["Old Price"] || row.oldPrice) ? parseFloat(row["Old Price"] || row.oldPrice) : null,
-             tags
-          };
-
-          if (shouldUpdateImage) {
-            productData.image = imageUrl;
-          }
-
-          const id = row.ID || row.id;
-
-          if (id) {
-            // Update existing by ID
-            const existing = await prisma.product.findUnique({ where: { id: Number(id) } });
-            if (existing) {
-              if (req.user!.role === "ADMIN" || existing.sellerId === sellerId) {
+              if (duplicate) {
                  await prisma.product.update({
-                   where: { id: Number(id) },
+                   where: { id: duplicate.id },
                    data: productData
                  });
                  updatedCount++;
-              }
-            } else {
-               // ID provided but not found -> Check Name before creating
-               const duplicate = await prisma.product.findFirst({
-                 where: {
-                   title: { equals: productData.title, mode: "insensitive" },
-                   sellerId: row.SellerID ? Number(row.SellerID) : sellerId
-                 }
-               });
-
-               if (duplicate) {
-                  // Update the duplicate instead of creating new
-                  await prisma.product.update({
-                    where: { id: duplicate.id },
-                    data: productData
-                  });
-                  updatedCount++;
-               } else {
-                  // Create new
+              } else {
                   await prisma.product.create({
-                    data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
+                    data: { ...productData, sellerId: targetSellerId, image: productData.image || "" }
                   });
                   createdCount++;
-               }
-            }
-          } else {
-            // No ID -> Check Name for Duplicates first
-            const duplicate = await prisma.product.findFirst({
-              where: {
-                title: { equals: productData.title, mode: "insensitive" },
-                sellerId: row.SellerID ? Number(row.SellerID) : sellerId
               }
-            });
-
-            if (duplicate) {
-               // Update existing duplicate
-               await prisma.product.update({
-                 where: { id: duplicate.id },
-                 data: productData
-               });
-               updatedCount++;
-            } else {
-                // Create new
-                await prisma.product.create({
-                  data: { ...productData, sellerId: row.SellerID ? Number(row.SellerID) : sellerId, image: productData.image || "" }
-                });
-                createdCount++;
             }
+          } catch (rowError) {
+            console.error("Error processing row:", rowError);
+            // Continue to next row
           }
         }
         res.json({ message: `Processed successfully: ${createdCount} created, ${updatedCount} updated.` });
